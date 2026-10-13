@@ -34,15 +34,16 @@ W_King = pygame.image.load(str(image_path_W_King)).convert_alpha()
 W_Queen = pygame.image.load(str(image_path_W_Queen)).convert_alpha()
 W_Rook = pygame.image.load(str(image_path_W_Rook)).convert_alpha()
 W_Pawn = pygame.image.load(str(image_path_W_Pawn)).convert_alpha()
-
+x=80
+y=60
 def defaultPosition():
-    
-    screen.blit(W_Rook, (75,70))  
-    screen.blit(W_Knight, (200,50))
-    screen.blit(W_Bishop, (300,50))
-    screen.blit(W_King, (400,50))
-    screen.blit(W_Queen, (500,50))
-    screen.blit(W_Pawn, (100,150))
+    #50 border + 25 for starting position of the image
+    screen.blit(W_Rook, (x,y))  
+    screen.blit(W_Knight, (x+100,y))
+    screen.blit(W_Bishop, (x+200,y))
+    screen.blit(W_King, (x+300,y))
+    screen.blit(W_Queen, (x+400,y))
+    screen.blit(W_Pawn, (x,y+100))
     # screen.blit(board, (50,50))
     # screen.blit(board, (50,50))
     # screen.blit(board, (50,50))
