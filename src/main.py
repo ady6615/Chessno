@@ -116,6 +116,7 @@ while running:
     defaultPosition()
     # RENDER YOUR GAME HERE
     if dragging:
+            
             image = selected_piece
             rect = image.get_rect(center=pygame.mouse.get_pos())
             screen.blit(image, rect)  
