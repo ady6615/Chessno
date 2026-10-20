@@ -102,6 +102,7 @@ class TestNumberCardMechanics(unittest.TestCase):
     def test_one_move_turn(self):
         mode = ChessUnoMode()
         state = GameState(mode=mode)
+        mode.skips_queued = {chess.WHITE: 0, chess.BLACK: 0}
         mode.current_card = UnoCard(UnoCardType.ONE, UnoCardColor.RED)
         mode.moves_allowed = 1
         mode.moves_completed = 0
@@ -118,6 +119,7 @@ class TestNumberCardMechanics(unittest.TestCase):
     def test_two_move_consecutive_turn(self):
         mode = ChessUnoMode()
         state = GameState(mode=mode)
+        mode.skips_queued = {chess.WHITE: 0, chess.BLACK: 0}
         mode.current_card = UnoCard(UnoCardType.TWO, UnoCardColor.GREEN)
         mode.moves_allowed = 2
         mode.moves_completed = 0
@@ -139,6 +141,7 @@ class TestNumberCardMechanics(unittest.TestCase):
     def test_three_move_consecutive_turn(self):
         mode = ChessUnoMode()
         state = GameState(mode=mode)
+        mode.skips_queued = {chess.WHITE: 0, chess.BLACK: 0}
         mode.current_card = UnoCard(UnoCardType.THREE, UnoCardColor.BLUE)
         mode.moves_allowed = 3
         mode.moves_completed = 0
