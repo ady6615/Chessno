@@ -36,7 +36,7 @@ from coordinates import (
     piece_to_code,
 )
 from game_engine import GameState, ClassicChessMode
-from uno_engine import ChessUnoMode
+from uno_engine import ChessUnoMode, UnoTurnPhase
 from renderer import ChessRenderer, BG_COLOR
 
 # Window dimensions
@@ -144,6 +144,10 @@ def main() -> None:
     while running:
         mouse_pos = pygame.mouse.get_pos()
 
+        # In Chess + UNO mode, advance shuffle animation
+        if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.SHUFFLING:
+            game_state.mode.update_shuffle(game_state)
+
         # In Chess + UNO mode, sync visual flip with Reverse card state unless manually flipped
         if isinstance(game_state.mode, ChessUnoMode):
             flipped = game_state.mode.board_reversed
@@ -224,7 +228,20 @@ def main() -> None:
                     Assets.toggle_sound()
                     continue
 
+                # Chess + UNO: Draw Card button or Deck click
+                if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
+                    if (
+                        renderer.buttons.draw_card.collidepoint(event.pos)
+                        or renderer.buttons.deck_card.collidepoint(event.pos)
+                    ):
+                        game_state.mode.trigger_draw(game_state, animate=True)
+                        continue
+
                 # 4. Board Square Click
+                # In Chess + UNO mode, restrict piece interaction until card is drawn and revealed
+                if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase != UnoTurnPhase.CARD_ACTIVE:
+                    continue
+
                 clicked_sq = pixel_to_square(
                     event.pos,
                     flipped=flipped,
@@ -328,6 +345,10 @@ def main() -> None:
 
                 elif event.key == pygame.K_m:
                     Assets.toggle_sound()
+
+                elif event.key == pygame.K_SPACE:
+                    if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
+                        game_state.mode.trigger_draw(game_state, animate=True)
 
                 elif event.key == pygame.K_1 and mode_selector_open:
                     switch_to_mode("Classic")

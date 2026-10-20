@@ -85,6 +85,8 @@ SOUND_FILES = {
     "promotion": "Promotion.wav",
     "game_start": "GameStart.wav",
     "game_over": "GameOver.wav",
+    "card_shuffle": "CardShuffle.wav",
+    "card_flip": "CardFlip.wav",
 }
 
 
@@ -193,6 +195,18 @@ def _generate_procedural_sound(sound_type: str) -> Optional[pygame.mixer.Sound]:
             "invalid": [(180, 0.09, 14000), (140, 0.12, 12000)],
             "game_start": [(440, 0.08, 12000), (554, 0.08, 14000), (659, 0.14, 15000)],
             "game_over": [(659, 0.10, 14000), (554, 0.10, 12000), (440, 0.20, 15000)],
+            "card_shuffle": [
+                (280, 0.04, 7000),
+                (360, 0.04, 8000),
+                (440, 0.04, 9000),
+                (520, 0.04, 9000),
+                (400, 0.04, 8000),
+                (480, 0.05, 9000),
+            ],
+            "card_flip": [
+                (520, 0.03, 11000),
+                (740, 0.06, 15000),
+            ],
         }
 
         recipe = recipes.get(sound_type)

@@ -5,9 +5,10 @@ UNO mechanics and deck management for Chessno (Chess + UNO game mode).
 Contains:
 - UnoCardType: 1, 2, 3, Reverse, Skip
 - UnoCardColor: Red, Blue, Green, Yellow
+- UnoTurnPhase: AWAITING_DRAW, SHUFFLING, CARD_ACTIVE
 - UnoCard: Dataclass representing an individual card
 - UnoDeck: Shuffled, auto-reshuffling configurable deck
-- ChessUnoMode: Complete GameMode implementation integrating UNO cards with chess rules
+- ChessUnoMode: Complete GameMode implementation with button-triggered draw and shuffle animation
 """
 
 from enum import Enum
@@ -32,6 +33,12 @@ class UnoCardColor(Enum):
     BLUE = "Blue"
     GREEN = "Green"
     YELLOW = "Yellow"
+
+
+class UnoTurnPhase(Enum):
+    AWAITING_DRAW = "Awaiting Draw"   # Waiting for player to press "Draw Card"
+    SHUFFLING = "Shuffling"           # Card shuffle animation in progress
+    CARD_ACTIVE = "Card Active"       # Card revealed, player makes legal chess move(s)
 
 
 # RGB color mapping for visual rendering
@@ -143,11 +150,9 @@ class UnoDeck:
                 self.discard_pile.clear()
                 self._rng.shuffle(self.draw_pile)
             else:
-                # Discard is also empty, re-create fresh deck
                 self.reset()
 
-        card = self.draw_pile.pop()
-        return card
+        return self.draw_pile.pop()
 
     def discard(self, card: UnoCard) -> None:
         """Place a card into the discard pile."""
@@ -164,31 +169,23 @@ class UnoDeck:
 
 class ChessUnoMode(GameMode):
     """
-    Chess + UNO Game Mode.
+    Chess + UNO Game Mode with interactive button draw and shuffle animation.
 
-    Rules & Turn Flow:
-    1. At the start of each non-skipped turn, the active player draws an UNO card.
-    2. Card effects apply immediately:
-       - 1, 2, 3: Grants exactly 1, 2, or 3 legal chess moves to the active player.
-       - Reverse: Rotates the board display 180 degrees (toggles flipped) + grants 1 move.
-       - Skip: Grants 1 move, then queues a skip for the opponent's next turn.
-    3. Multi-move turns:
-       - Every move must be fully legal under chess rules.
-       - A move that leaves the active player's own king in check is forbidden.
-       - The active player remains active until their move allowance is exhausted or 0 legal moves remain.
-       - King capture is forbidden; opponents are not prematurely declared checkmated during sub-moves.
-    4. Skip handling & Conflict Resolution:
-       - If the player delivers checkmate with their move, the game ends immediately.
-       - If the player's move leaves the opponent's king in check, the opponent's mandatory response to
-         check takes precedence: the Skip is neutralized so the opponent can defend their king.
-       - Consecutive Skips are tracked per-player via `skips_queued`.
-       - Skipped turns do not draw an UNO card and do not count as a chess move.
+    Turn Flow:
+    1. At the start of a turn, the mode enters AWAITING_DRAW phase.
+    2. The player presses the 'Draw Card' button or [Space].
+    3. The mode enters SHUFFLING phase: cards shuffle visually for ~0.6s with audio.
+    4. The card is revealed, enters CARD_ACTIVE phase, and its effects apply immediately.
+    5. The player completes their allocated chess moves.
     """
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None, auto_draw: bool = False):
         super().__init__(name="Chess + UNO")
         self.deck = UnoDeck(seed=seed)
-        self.current_card: Optional[UnoCard] = None
+        self.auto_draw = auto_draw
+        self._current_card: Optional[UnoCard] = None
+        self.pending_draw_card: Optional[UnoCard] = None
+        self.phase: UnoTurnPhase = UnoTurnPhase.AWAITING_DRAW
         self.active_turn_color: chess.Color = chess.WHITE
         self.moves_allowed: int = 1
         self.moves_completed: int = 0
@@ -197,10 +194,27 @@ class ChessUnoMode(GameMode):
         self.status_message: str = "Chess + UNO initialized"
         self.skip_alert_message: Optional[str] = None
 
+        # Shuffle animation parameters
+        self.shuffle_frames_remaining: int = 0
+        self.shuffle_total_frames: int = 36
+        self.shuffle_progress: float = 0.0
+
+    @property
+    def current_card(self) -> Optional[UnoCard]:
+        return self._current_card
+
+    @current_card.setter
+    def current_card(self, card: Optional[UnoCard]) -> None:
+        self._current_card = card
+        if card is not None:
+            self.phase = UnoTurnPhase.CARD_ACTIVE
+
     def on_init(self, game_state: GameState) -> None:
-        """Reset UNO mode state and draw the first card for White."""
+        """Reset UNO mode state and prepare initial turn for White."""
         self.deck.reset()
-        self.current_card = None
+        self._current_card = None
+        self.pending_draw_card = None
+        self.phase = UnoTurnPhase.AWAITING_DRAW
         self.active_turn_color = chess.WHITE
         self.moves_allowed = 1
         self.moves_completed = 0
@@ -215,7 +229,6 @@ class ChessUnoMode(GameMode):
 
     @pending_skips.setter
     def pending_skips(self, val: int) -> None:
-        # Default target for manual tests: the opponent of the active player
         opp = chess.BLACK if self.active_turn_color == chess.WHITE else chess.WHITE
         self.skips_queued[opp] = val
 
@@ -226,8 +239,12 @@ class ChessUnoMode(GameMode):
     def can_move(self, game_state: GameState, move: chess.Move) -> bool:
         """
         Verify mod-specific move constraints:
-        - In chess, you cannot capture the enemy King (even during multi-move turns).
+        - Pieces cannot be moved until a card has been drawn and revealed.
+        - Capturing the enemy King is forbidden.
         """
+        if self.phase != UnoTurnPhase.CARD_ACTIVE:
+            return False
+
         target_piece = game_state.board.piece_at(move.to_square)
         if target_piece and target_piece.piece_type == chess.KING:
             return False
@@ -235,8 +252,8 @@ class ChessUnoMode(GameMode):
 
     def start_turn(self, game_state: GameState) -> None:
         """
-        Start a new turn for the current active player.
-        Handles skips and draws an UNO card if not skipped.
+        Initialize the turn for the active player.
+        Checks for pending skips, and if not skipped, waits for player to draw.
         """
         if game_state.is_game_over():
             return
@@ -250,38 +267,93 @@ class ChessUnoMode(GameMode):
             self.skips_queued[current_color] -= 1
             self.skip_alert_message = f"{color_name}'s turn was SKIPPED by UNO!"
             self.status_message = f"{color_name} skipped!"
-            # Pass turn directly to opponent without drawing card or making a move
             opponent = chess.BLACK if current_color == chess.WHITE else chess.WHITE
             game_state.board.turn = opponent
             self.active_turn_color = opponent
             self.start_turn(game_state)
             return
 
-        # Do not erase neutralized alert immediately
         if not self.skip_alert_message or "neutralized" not in self.skip_alert_message:
             self.skip_alert_message = None
 
-        # Draw a card for this turn
-        if self.current_card is not None:
-            self.deck.discard(self.current_card)
+        if self.auto_draw:
+            self.trigger_draw(game_state, animate=False)
+        else:
+            self.phase = UnoTurnPhase.AWAITING_DRAW
+            self._current_card = None
+            self.pending_draw_card = None
+            self.moves_allowed = 0
+            self.moves_completed = 0
+            self.status_message = f"{color_name}: Press 'Draw Card' to draw your UNO card!"
+
+    def trigger_draw(self, game_state: GameState, animate: bool = True) -> None:
+        """
+        Triggered when the player presses the 'Draw Card' button or [Space].
+        Starts the shuffle animation or reveals immediately if animate is False.
+        """
+        if self.phase != UnoTurnPhase.AWAITING_DRAW and not self.auto_draw:
+            return
+
+        if self._current_card is not None:
+            self.deck.discard(self._current_card)
 
         card = self.deck.draw()
-        self.current_card = card
+        color_name = "White" if self.active_turn_color == chess.WHITE else "Black"
+
+        if animate:
+            self.pending_draw_card = card
+            self.phase = UnoTurnPhase.SHUFFLING
+            self.shuffle_total_frames = 36  # ~0.60 seconds at 60 FPS
+            self.shuffle_frames_remaining = self.shuffle_total_frames
+            self.shuffle_progress = 0.0
+            self.status_message = f"{color_name} is shuffling cards..."
+            try:
+                import Assets
+                Assets.play_sound("card_shuffle")
+            except Exception:
+                pass
+        else:
+            self.apply_drawn_card(game_state, card)
+
+    def apply_drawn_card(self, game_state: GameState, card: UnoCard) -> None:
+        """Commit the drawn card into the active game state."""
+        self._current_card = card
+        self.pending_draw_card = None
+        self.phase = UnoTurnPhase.CARD_ACTIVE
         self.moves_allowed = card.moves_allowed
         self.moves_completed = 0
+        color_name = "White" if self.active_turn_color == chess.WHITE else "Black"
 
-        # Apply immediate card effects
         if card.card_type == UnoCardType.REVERSE:
             self.board_reversed = not self.board_reversed
             self.status_message = f"{color_name} drew Reverse! Board rotated."
         elif card.card_type == UnoCardType.SKIP:
-            opponent = chess.BLACK if current_color == chess.WHITE else chess.WHITE
+            opponent = chess.BLACK if self.active_turn_color == chess.WHITE else chess.WHITE
             self.skips_queued[opponent] += 1
             self.status_message = f"{color_name} drew Skip! Opponent will be skipped."
         elif card.card_type in (UnoCardType.TWO, UnoCardType.THREE):
             self.status_message = f"{color_name} drew {card.symbol}! {card.moves_allowed} consecutive moves."
         else:
             self.status_message = f"{color_name} drew {card.symbol} ({card.color.value})."
+
+        try:
+            import Assets
+            Assets.play_sound("card_flip")
+        except Exception:
+            pass
+
+    def update_shuffle(self, game_state: GameState) -> None:
+        """Update animation frame during the SHUFFLING phase."""
+        if self.phase != UnoTurnPhase.SHUFFLING:
+            return
+
+        self.shuffle_frames_remaining -= 1
+        elapsed = self.shuffle_total_frames - self.shuffle_frames_remaining
+        self.shuffle_progress = min(1.0, elapsed / self.shuffle_total_frames)
+
+        if self.shuffle_frames_remaining <= 0:
+            if self.pending_draw_card:
+                self.apply_drawn_card(game_state, self.pending_draw_card)
 
     def on_move_executed(self, game_state: GameState, move_result: MoveResult) -> None:
         """
@@ -295,33 +367,26 @@ class ChessUnoMode(GameMode):
         # Check if the move delivered checkmate to opponent
         game_state.board.turn = opponent_color
         if game_state.board.is_checkmate():
-            # Checkmate immediately ends the game!
             self.moves_allowed = self.moves_completed
             self.skips_queued = {chess.WHITE: 0, chess.BLACK: 0}
             return
 
         # Restore turn to active player if they still have moves remaining
         if self.moves_remaining > 0:
-            # Check if active player has any legal moves available
             game_state.board.turn = active_color
             has_legal_moves = any(game_state.get_legal_moves_from(sq) for sq in chess.SQUARES)
             if not has_legal_moves:
-                # No legal moves remain: end turn early
                 self.moves_allowed = self.moves_completed
                 game_state.board.turn = opponent_color
             else:
-                # Active player continues!
                 game_state.board.turn = active_color
                 return
 
-        # At this point, the active player's turn is officially COMPLETE.
-        # Set turn to opponent
+        # Active player's turn is officially COMPLETE
         game_state.board.turn = opponent_color
 
         # Conflict Resolution: Check vs Skip
-        # "Do not allow a Skip card to silently bypass a required response to check or override an already completed checkmate."
         if game_state.board.is_check() and self.skips_queued[opponent_color] > 0:
-            # Opponent is in check! Opponent must have the opportunity to answer check.
             self.skips_queued[opponent_color] = 0
             self.skip_alert_message = "Skip neutralized: Opponent must answer check!"
 

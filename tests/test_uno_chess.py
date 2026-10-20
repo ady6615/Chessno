@@ -52,6 +52,7 @@ from uno_engine import (
     UnoCard,
     UnoCardType,
     UnoCardColor,
+    UnoTurnPhase,
 )
 import Assets
 import ChessMatrix
@@ -279,6 +280,9 @@ class TestSkipCard(unittest.TestCase):
         self.assertEqual(state.turn, chess.WHITE)
         self.assertEqual(mode.skips_queued[chess.BLACK], 1)
 
+        # White draws card for the next turn
+        mode.trigger_draw(state, animate=False)
+
         # White moves d2-d4
         state.make_move(chess.D2, chess.D4)
         # Black skipped 2nd time, back to White
@@ -383,7 +387,10 @@ class TestModeSwitching(unittest.TestCase):
         uno_mode = ChessUnoMode()
         state.set_mode(uno_mode)
         self.assertEqual(state.mode.name, "Chess + UNO")
+        self.assertEqual(uno_mode.phase, UnoTurnPhase.AWAITING_DRAW)
+        uno_mode.trigger_draw(state, animate=False)
         self.assertIsNotNone(uno_mode.current_card)
+        self.assertEqual(uno_mode.phase, UnoTurnPhase.CARD_ACTIVE)
 
         # Switch back to Classic
         classic = ClassicChessMode()
@@ -392,5 +399,76 @@ class TestModeSwitching(unittest.TestCase):
         self.assertFalse(hasattr(state.mode, "deck"))
 
 
+class TestUnoShuffleAndButtonDraw(unittest.TestCase):
+    """Test button draw requirement, shuffle animation phases, and movement gating."""
+
+    def test_movement_blocked_in_awaiting_draw_phase(self):
+        mode = ChessUnoMode()
+        state = GameState(mode=mode)
+        self.assertEqual(mode.phase, UnoTurnPhase.AWAITING_DRAW)
+
+        # In AWAITING_DRAW, can_move must return False
+        legal_move = chess.Move(chess.E2, chess.E4)
+        self.assertFalse(mode.can_move(state, legal_move))
+
+        # make_move must fail because card has not yet been drawn
+        res = state.make_move(chess.E2, chess.E4)
+        self.assertFalse(res.success)
+        self.assertEqual(state.turn, chess.WHITE)
+
+    def test_instant_draw_bypasses_shuffle(self):
+        mode = ChessUnoMode()
+        state = GameState(mode=mode)
+        self.assertEqual(mode.phase, UnoTurnPhase.AWAITING_DRAW)
+
+        # Trigger draw without animation
+        mode.trigger_draw(state, animate=False)
+        self.assertEqual(mode.phase, UnoTurnPhase.CARD_ACTIVE)
+        self.assertIsNotNone(mode.current_card)
+        self.assertGreaterEqual(mode.moves_allowed, 1)
+
+        # Now moves must be accepted
+        res = state.make_move(chess.E2, chess.E4)
+        self.assertTrue(res.success)
+
+    def test_animated_shuffle_sequence(self):
+        mode = ChessUnoMode()
+        state = GameState(mode=mode)
+        self.assertEqual(mode.phase, UnoTurnPhase.AWAITING_DRAW)
+
+        # Player clicks button or presses space
+        mode.trigger_draw(state, animate=True)
+        self.assertEqual(mode.phase, UnoTurnPhase.SHUFFLING)
+        self.assertIsNotNone(mode.pending_draw_card)
+        self.assertIsNone(mode.current_card)
+        self.assertGreater(mode.shuffle_frames_remaining, 0)
+
+        # Movement still blocked while shuffling
+        self.assertFalse(mode.can_move(state, chess.Move(chess.E2, chess.E4)))
+
+        # Advance frames partially
+        total_frames = mode.shuffle_total_frames
+        for _ in range(total_frames // 2):
+            mode.update_shuffle(state)
+
+        self.assertEqual(mode.phase, UnoTurnPhase.SHUFFLING)
+        self.assertGreater(mode.shuffle_progress, 0.0)
+        self.assertLess(mode.shuffle_progress, 1.0)
+
+        # Finish remaining frames
+        while mode.phase == UnoTurnPhase.SHUFFLING:
+            mode.update_shuffle(state)
+
+        # Phase should now be CARD_ACTIVE and card revealed
+        self.assertEqual(mode.phase, UnoTurnPhase.CARD_ACTIVE)
+        self.assertIsNotNone(mode.current_card)
+        self.assertGreaterEqual(mode.moves_allowed, 1)
+
+        # Now movement is permitted
+        res = state.make_move(chess.E2, chess.E4)
+        self.assertTrue(res.success)
+
+
 if __name__ == "__main__":
     unittest.main()
+
