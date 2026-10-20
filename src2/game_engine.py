@@ -123,15 +123,27 @@ class GameState:
         """True if the player whose turn it is is currently in check."""
         return self.board.is_check()
 
+    def set_mode(self, mode: GameMode) -> None:
+        """Switch active game mode and initialize it."""
+        self.mode = mode
+        self.mode.on_init(self)
+
     def is_game_over(self) -> bool:
         """True if game is over by checkmate or any draw condition."""
-        return self.board.is_game_over(claim_draw=True)
+        if hasattr(self.mode, "moves_remaining") and self.mode.moves_remaining > 0:
+            return False
+        return (
+            self.board.is_checkmate()
+            or self.board.is_stalemate()
+            or self.board.is_insufficient_material()
+            or self.board.is_fifty_moves()
+            or self.board.is_repetition(3)
+        )
 
     def winner(self) -> Optional[chess.Color]:
         """Returns chess.WHITE, chess.BLACK, or None if drawn or ongoing."""
-        outcome = self.board.outcome(claim_draw=True)
-        if outcome and outcome.winner is not None:
-            return outcome.winner
+        if self.board.is_checkmate():
+            return chess.BLACK if self.board.turn == chess.WHITE else chess.WHITE
         return None
 
     def game_over_reason(self) -> Optional[str]:

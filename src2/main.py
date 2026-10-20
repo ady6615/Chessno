@@ -3,14 +3,15 @@
 Chessno - Main Application Entry Point
 
 Features:
+- Selectable game modes: Classic Chess & Chess + UNO
+- Start menu and in-game mode switcher
 - Complete standard FIDE chess rules via python-chess (castling, en passant, promotion, checks, checkmate, draws)
+- Chess + UNO mechanics: 1, 2, 3 multi-move turns, 180° Reverse board flips, and Skips
 - Seamless dual interaction: click-to-move AND drag-and-drop
 - In-game interactive pawn promotion selector
 - Real-time square highlighting for legal moves, captures, last move, and king in check
 - Dynamic asset pack (theme) switching
 - Audio system with custom WAV file support and procedural fallback
-- Board flip capability (view from White or Black perspective)
-- Extensible architecture ready for Chess + UNO, Immortal Snail, and Multiplayer
 """
 
 import sys
@@ -35,6 +36,7 @@ from coordinates import (
     piece_to_code,
 )
 from game_engine import GameState, ClassicChessMode
+from uno_engine import ChessUnoMode
 from renderer import ChessRenderer, BG_COLOR
 
 # Window dimensions
@@ -64,7 +66,7 @@ def main() -> None:
     # 1. Initialize Pygame
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    pygame.display.set_caption("Chessno - Complete Chess")
+    pygame.display.set_caption("Chessno - Chess + UNO")
     clock = pygame.time.Clock()
     FPS = 60
 
@@ -76,7 +78,9 @@ def main() -> None:
 
     active_pack_index = available_packs.index(Assets.get_active_asset_pack())
 
-    # 3. Initialize Game Engine & Authoritative State
+    # 3. Game State & Mode Management
+    # Default initial mode: Classic Chess; Start Menu opened for selection
+    current_mode_name = "Classic"
     game_state = GameState(mode=ClassicChessMode())
     ChessMatrix.set_active_game_state(game_state)
 
@@ -90,7 +94,8 @@ def main() -> None:
         panel_width=PANEL_WIDTH,
     )
 
-    # 5. Interaction State
+    # 5. UI and Interaction State
+    mode_selector_open: bool = False
     selected_square: Optional[chess.Square] = None
     legal_destinations: List[chess.Square] = []
     dragging: bool = False
@@ -99,6 +104,28 @@ def main() -> None:
     pending_promotion: Optional[Tuple[chess.Square, chess.Square]] = None
 
     Assets.play_sound("game_start")
+
+    def switch_to_mode(mode_name: str) -> None:
+        nonlocal current_mode_name, game_state, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion, flipped, mode_selector_open
+        if mode_name == "Chess + UNO":
+            current_mode_name = "Chess + UNO"
+            uno_mode = ChessUnoMode()
+            game_state = GameState(mode=uno_mode)
+            flipped = uno_mode.board_reversed
+        else:
+            current_mode_name = "Classic"
+            classic_mode = ClassicChessMode()
+            game_state = GameState(mode=classic_mode)
+            flipped = False
+
+        ChessMatrix.set_active_game_state(game_state)
+        selected_square = None
+        legal_destinations = []
+        dragging = False
+        drag_start_square = None
+        pending_promotion = None
+        mode_selector_open = False
+        Assets.play_sound("game_start")
 
     def change_theme(direction: int) -> None:
         nonlocal active_pack_index, board_image, piece_images
@@ -117,6 +144,10 @@ def main() -> None:
     while running:
         mouse_pos = pygame.mouse.get_pos()
 
+        # In Chess + UNO mode, sync visual flip with Reverse card state unless manually flipped
+        if isinstance(game_state.mode, ChessUnoMode):
+            flipped = game_state.mode.board_reversed
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -125,14 +156,25 @@ def main() -> None:
             # MOUSE BUTTON DOWN
             # ---------------------------------------------------------
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                # Handle promotion modal interaction
+                # 1. Mode Selector Modal Intercept
+                if mode_selector_open:
+                    c_rect, u_rect = renderer.get_mode_selector_rects()
+                    if c_rect.collidepoint(event.pos):
+                        switch_to_mode("Classic")
+                    elif u_rect.collidepoint(event.pos):
+                        switch_to_mode("Chess + UNO")
+                    else:
+                        # Clicked outside cards: close modal
+                        mode_selector_open = False
+                    continue
+
+                # 2. Promotion Modal Intercept
                 if pending_promotion is not None:
                     from_sq, to_sq = pending_promotion
                     options = renderer.get_promotion_options(game_state.turn, to_sq, flipped=flipped)
                     option_clicked = False
                     for ptype, btn_rect, _ in options:
                         if btn_rect.collidepoint(event.pos):
-                            # Commit move with chosen promotion piece
                             result = game_state.make_move(from_sq, to_sq, promotion=ptype)
                             if result.success:
                                 play_move_sound(result)
@@ -149,7 +191,11 @@ def main() -> None:
                         legal_destinations = []
                     continue
 
-                # Check UI Button Clicks
+                # 3. Check UI Button Clicks
+                if renderer.buttons.mode_select.collidepoint(event.pos):
+                    mode_selector_open = True
+                    continue
+
                 if renderer.buttons.prev_theme.collidepoint(event.pos):
                     change_theme(-1)
                     continue
@@ -170,13 +216,15 @@ def main() -> None:
 
                 if renderer.buttons.flip_board.collidepoint(event.pos):
                     flipped = not flipped
+                    if isinstance(game_state.mode, ChessUnoMode):
+                        game_state.mode.board_reversed = flipped
                     continue
 
                 if renderer.buttons.sound_toggle.collidepoint(event.pos):
                     Assets.toggle_sound()
                     continue
 
-                # Board square click
+                # 4. Board Square Click
                 clicked_sq = pixel_to_square(
                     event.pos,
                     flipped=flipped,
@@ -186,7 +234,7 @@ def main() -> None:
                 )
 
                 if clicked_sq is not None:
-                    # Case 1: Already had a piece selected
+                    # Case A: Already had a piece selected
                     if selected_square is not None:
                         # Click-to-move destination?
                         if clicked_sq in legal_destinations:
@@ -199,7 +247,7 @@ def main() -> None:
                                 selected_square = None
                                 legal_destinations = []
                         else:
-                            # Clicked another piece of the same player?
+                            # Clicked another piece belonging to the active player?
                             piece = game_state.get_piece_at(clicked_sq)
                             if piece is not None and piece.color == game_state.turn:
                                 selected_square = clicked_sq
@@ -211,7 +259,7 @@ def main() -> None:
                                 selected_square = None
                                 legal_destinations = []
 
-                    # Case 2: No piece currently selected
+                    # Case B: No piece currently selected
                     else:
                         piece = game_state.get_piece_at(clicked_sq)
                         if piece is not None and piece.color == game_state.turn:
@@ -269,6 +317,8 @@ def main() -> None:
 
                 elif event.key == pygame.K_f:
                     flipped = not flipped
+                    if isinstance(game_state.mode, ChessUnoMode):
+                        game_state.mode.board_reversed = flipped
 
                 elif event.key == pygame.K_RIGHT:
                     change_theme(1)
@@ -279,12 +329,21 @@ def main() -> None:
                 elif event.key == pygame.K_m:
                     Assets.toggle_sound()
 
+                elif event.key == pygame.K_1 and mode_selector_open:
+                    switch_to_mode("Classic")
+
+                elif event.key == pygame.K_2 and mode_selector_open:
+                    switch_to_mode("Chess + UNO")
+
                 elif event.key == pygame.K_ESCAPE:
-                    pending_promotion = None
-                    selected_square = None
-                    legal_destinations = []
-                    dragging = False
-                    drag_start_square = None
+                    if mode_selector_open:
+                        mode_selector_open = False
+                    else:
+                        pending_promotion = None
+                        selected_square = None
+                        legal_destinations = []
+                        dragging = False
+                        drag_start_square = None
 
         # -------------------------------------------------------------
         # DRAWING ROUTINE
@@ -339,6 +398,10 @@ def main() -> None:
             sound_enabled=Assets.is_sound_enabled(),
             flipped=flipped,
         )
+
+        # 7. Start Menu / Mode Selector Modal
+        if mode_selector_open:
+            renderer.draw_mode_selector_modal(mouse_pos)
 
         pygame.display.flip()
         clock.tick(FPS)

@@ -8,7 +8,8 @@ Handles all Pygame drawing routines:
 - Centered piece rendering derived strictly from authoritative GameState
 - Drag-and-drop piece rendering
 - In-game Pawn Promotion dialog overlay
-- Right-side information panel with theme switcher, controls, and mod card slot
+- Start Menu & Game Mode Selection modal
+- Right-side information panel with theme switcher, controls, and UNO card display
 """
 
 from typing import Optional, Tuple, List, Dict, Any
@@ -43,6 +44,14 @@ BTN_COLOR = (54, 59, 72)
 BTN_HOVER = (72, 79, 96)
 BTN_BORDER = (82, 90, 108)
 
+# UNO Card Colors
+UNO_COLORS = {
+    "Red": (220, 48, 48),
+    "Blue": (35, 115, 230),
+    "Green": (42, 175, 80),
+    "Yellow": (235, 190, 25),
+}
+
 
 class UIButtons:
     """Stores bounding rectangles for clickable panel buttons."""
@@ -50,6 +59,9 @@ class UIButtons:
         self.panel_x = panel_x
         self.panel_width = panel_width
         
+        # Mode selector button in header
+        self.mode_select = pygame.Rect(panel_x + panel_width - 100, 64, 100, 26)
+
         # Theme switching buttons
         self.prev_theme = pygame.Rect(panel_x, 340, 65, 36)
         self.next_theme = pygame.Rect(panel_x + panel_width - 65, 340, 65, 36)
@@ -86,6 +98,9 @@ class ChessRenderer:
         self.font_normal = pygame.font.SysFont("arial", 15)
         self.font_small = pygame.font.SysFont("arial", 13)
         self.font_micro = pygame.font.SysFont("arial", 11)
+        self.font_card_large = pygame.font.SysFont("arial", 46, bold=True)
+        self.font_card_med = pygame.font.SysFont("arial", 22, bold=True)
+        self.font_card_corner = pygame.font.SysFont("arial", 14, bold=True)
 
         self.buttons = UIButtons(panel_x, panel_width)
 
@@ -137,7 +152,6 @@ class ChessRenderer:
                     king_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
                 )
                 self.screen.blit(self._surf_check, rect.topleft)
-                # Draw sharp inner red border
                 pygame.draw.rect(self.screen, (240, 50, 50), rect, width=3)
 
         # 3. Selected piece highlight
@@ -163,7 +177,6 @@ class ChessRenderer:
                     if chess.square_file(selected_square) != chess.square_file(dest):
                         is_ep = True
 
-            center = rect.center
             if target_piece is not None or is_ep:
                 # Capture target: draw corner capture markers / capture ring
                 ring_surface = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
@@ -252,7 +265,6 @@ class ChessRenderer:
         )
         color_prefix = "w" if color == chess.WHITE else "b"
 
-        # Modal layout: 4 vertical buttons or 2x2 grid centered near destination
         modal_w = 220
         modal_h = 100
         modal_x = min(max(rect.centerx - modal_w // 2, self.board_x + 10), self.board_x + 8 * self.square_size - modal_w - 10)
@@ -320,10 +332,158 @@ class ChessRenderer:
 
             if pcode in piece_images:
                 img = piece_images[pcode]
-                # Scale piece to fit comfortably inside button
                 scaled = pygame.transform.smoothscale(img, (38, 38))
                 img_rect = scaled.get_rect(center=(btn_rect.centerx, btn_rect.centery))
                 self.screen.blit(scaled, img_rect)
+
+    # -------------------------------------------------------------------------
+    # Game Mode Selection Start Menu / Modal
+    # -------------------------------------------------------------------------
+
+    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect]:
+        """Return clickable rectangles for (Classic_Chess_card, Chess_UNO_card)."""
+        screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
+        card_w, card_h = 280, 260
+        gap = 30
+        total_w = card_w * 2 + gap
+        start_x = (screen_w - total_w) // 2
+        card_y = (screen_h - card_h) // 2 + 30
+
+        rect_classic = pygame.Rect(start_x, card_y, card_w, card_h)
+        rect_uno = pygame.Rect(start_x + card_w + gap, card_y, card_w, card_h)
+        return rect_classic, rect_uno
+
+    def draw_mode_selector_modal(self, mouse_pos: Tuple[int, int]) -> Tuple[pygame.Rect, pygame.Rect]:
+        """
+        Draw a modal start menu allowing the player to select the game mode.
+        Returns the two card Rects for event collision checking.
+        """
+        screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
+
+        # Dark overlay
+        overlay = pygame.Surface((screen_w, screen_h), pygame.SRCALPHA)
+        overlay.fill((12, 14, 18, 220))
+        self.screen.blit(overlay, (0, 0))
+
+        # Title container
+        title_y = screen_h // 2 - 200
+        title_surf = self.font_title.render("SELECT GAME MODE", True, TEXT_PRIMARY)
+        t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
+        self.screen.blit(title_surf, t_rect)
+
+        sub_surf = self.font_normal.render("Choose how you want to play Chessno", True, TEXT_SECONDARY)
+        s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 36))
+        self.screen.blit(sub_surf, s_rect)
+
+        rect_classic, rect_uno = self.get_mode_selector_rects()
+
+        # 1. Classic Chess Card
+        is_hov_c = rect_classic.collidepoint(mouse_pos)
+        c_bg = (52, 57, 70) if is_hov_c else (40, 44, 54)
+        c_border = ACCENT_COLOR if is_hov_c else PANEL_BORDER
+        pygame.draw.rect(self.screen, c_bg, rect_classic, border_radius=12)
+        pygame.draw.rect(self.screen, c_border, rect_classic, width=2 if is_hov_c else 1, border_radius=12)
+
+        # Classic card content
+        c_title = self.font_header.render("Classic Chess", True, TEXT_PRIMARY)
+        self.screen.blit(c_title, (rect_classic.x + 20, rect_classic.y + 24))
+        c_badge = self.font_micro.render("STANDARD FIDE RULES", True, ACCENT_COLOR)
+        self.screen.blit(c_badge, (rect_classic.x + 20, rect_classic.y + 54))
+
+        c_lines = [
+            "• Pure traditional chess",
+            "• 2-Player alternating turns",
+            "• Castling & En Passant",
+            "• Pawn Promotion choices",
+            "• Checkmate & Draw detection",
+        ]
+        for idx, line in enumerate(c_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_classic.x + 20, rect_classic.y + 90 + idx * 22))
+
+        btn_c_rect = pygame.Rect(rect_classic.x + 20, rect_classic.bottom - 46, rect_classic.width - 40, 32)
+        btn_c_color = ACCENT_HOVER if is_hov_c else ACCENT_COLOR
+        pygame.draw.rect(self.screen, btn_c_color, btn_c_rect, border_radius=6)
+        btn_c_lbl = self.font_subtitle.render("PLAY CLASSIC", True, (15, 35, 25))
+        self.screen.blit(btn_c_lbl, btn_c_lbl.get_rect(center=btn_c_rect.center))
+
+        # 2. Chess + UNO Card
+        is_hov_u = rect_uno.collidepoint(mouse_pos)
+        u_bg = (52, 57, 70) if is_hov_u else (40, 44, 54)
+        u_border = GOLD_COLOR if is_hov_u else PANEL_BORDER
+        pygame.draw.rect(self.screen, u_bg, rect_uno, border_radius=12)
+        pygame.draw.rect(self.screen, u_border, rect_uno, width=2 if is_hov_u else 1, border_radius=12)
+
+        # UNO card content
+        u_title = self.font_header.render("Chess + UNO", True, GOLD_COLOR)
+        self.screen.blit(u_title, (rect_uno.x + 20, rect_uno.y + 24))
+        u_badge = self.font_micro.render("MODDED CHESS EXPERIENCE", True, (240, 160, 60))
+        self.screen.blit(u_badge, (rect_uno.x + 20, rect_uno.y + 54))
+
+        u_lines = [
+            "• Draw an UNO card each turn!",
+            "• Number cards: 1, 2, or 3 moves",
+            "• Reverse: Flips board 180°",
+            "• Skip: Skips opponent turn",
+            "• Auto-reshuffling deck",
+        ]
+        for idx, line in enumerate(u_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_uno.x + 20, rect_uno.y + 90 + idx * 22))
+
+        btn_u_rect = pygame.Rect(rect_uno.x + 20, rect_uno.bottom - 46, rect_uno.width - 40, 32)
+        btn_u_color = (255, 215, 90) if is_hov_u else GOLD_COLOR
+        pygame.draw.rect(self.screen, btn_u_color, btn_u_rect, border_radius=6)
+        btn_u_lbl = self.font_subtitle.render("PLAY CHESS + UNO", True, (35, 30, 10))
+        self.screen.blit(btn_u_lbl, btn_u_lbl.get_rect(center=btn_u_rect.center))
+
+        return rect_classic, rect_uno
+
+    # -------------------------------------------------------------------------
+    # UNO Card Visual Graphic
+    # -------------------------------------------------------------------------
+
+    def draw_uno_card_graphic(self, card: Any, center_x: int, center_y: int, width: int = 110, height: int = 150) -> None:
+        """Render a stylized, authentic UNO card on screen."""
+        rect = pygame.Rect(0, 0, width, height)
+        rect.center = (center_x, center_y)
+
+        color_rgb = UNO_COLORS.get(card.color.value, (200, 50, 50))
+
+        # Card shadow
+        shadow = rect.inflate(6, 6)
+        pygame.draw.rect(self.screen, (15, 18, 22), shadow, border_radius=10)
+
+        # White border
+        pygame.draw.rect(self.screen, (245, 245, 245), rect, border_radius=8)
+
+        # Card colored body
+        body = rect.inflate(-8, -8)
+        pygame.draw.rect(self.screen, color_rgb, body, border_radius=6)
+
+        # White center oval
+        oval_w = int(body.width * 0.82)
+        oval_h = int(body.height * 0.62)
+        oval_rect = pygame.Rect(0, 0, oval_w, oval_h)
+        oval_rect.center = body.center
+        pygame.draw.ellipse(self.screen, (250, 250, 250), oval_rect)
+
+        # Center card symbol
+        symbol_str = card.symbol
+        use_font = self.font_card_large if len(symbol_str) <= 2 else self.font_card_med
+        sym_surf = use_font.render(symbol_str, True, color_rgb)
+        s_rect = sym_surf.get_rect(center=oval_rect.center)
+        self.screen.blit(sym_surf, s_rect)
+
+        # Corner symbols
+        top_left_sym = self.font_card_corner.render(symbol_str, True, (255, 255, 255))
+        self.screen.blit(top_left_sym, (body.x + 4, body.y + 4))
+
+        bot_right_sym = self.font_card_corner.render(symbol_str, True, (255, 255, 255))
+        b_rect = bot_right_sym.get_rect(right=body.right - 4, bottom=body.bottom - 4)
+        self.screen.blit(bot_right_sym, b_rect)
 
     # -------------------------------------------------------------------------
     # Right-Hand Information Panel
@@ -349,15 +509,21 @@ class ChessRenderer:
 
         # 1. Header & Brand
         title = self.font_title.render("CHESSNO", True, TEXT_PRIMARY)
-        self.screen.blit(title, (px, 35))
+        self.screen.blit(title, (px, 32))
 
-        mode_badge = self.font_subtitle.render("MODE: CLASSIC CHESS", True, ACCENT_COLOR)
+        is_uno_mode = (game_state.mode.name == "Chess + UNO")
+        mode_str = "MODE: CHESS + UNO" if is_uno_mode else "MODE: CLASSIC"
+        mode_color = GOLD_COLOR if is_uno_mode else ACCENT_COLOR
+        mode_badge = self.font_subtitle.render(mode_str, True, mode_color)
         self.screen.blit(mode_badge, (px, 70))
 
-        pygame.draw.line(self.screen, PANEL_BORDER, (px, 92), (px + pw, 92), 1)
+        # Mode switch button
+        self._draw_button("Mode", self.buttons.mode_select, mouse_pos)
+
+        pygame.draw.line(self.screen, PANEL_BORDER, (px, 94), (px + pw, 94), 1)
 
         # 2. Turn & Status Card
-        card_rect = pygame.Rect(px, 105, pw, 95)
+        card_rect = pygame.Rect(px, 102, pw, 98)
         pygame.draw.rect(self.screen, PANEL_CARD_BG, card_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, card_rect, width=1, border_radius=8)
 
@@ -367,12 +533,11 @@ class ChessRenderer:
         indicator_bg = (240, 240, 240) if game_state.turn == chess.WHITE else (30, 32, 40)
         indicator_border = (200, 200, 200) if game_state.turn == chess.WHITE else (100, 105, 120)
 
-        # Mini piece indicator circle
-        pygame.draw.circle(self.screen, indicator_bg, (px + 22, 130), 10)
-        pygame.draw.circle(self.screen, indicator_border, (px + 22, 130), 10, width=2)
+        pygame.draw.circle(self.screen, indicator_bg, (px + 22, 126), 10)
+        pygame.draw.circle(self.screen, indicator_border, (px + 22, 126), 10, width=2)
 
         turn_lbl = self.font_header.render(turn_str, True, turn_color)
-        self.screen.blit(turn_lbl, (px + 40, 120))
+        self.screen.blit(turn_lbl, (px + 40, 116))
 
         # Status badge
         status_text = game_state.status_summary()
@@ -382,11 +547,15 @@ class ChessRenderer:
         elif game_state.is_in_check():
             badge_color = CHECK_COLOR
             badge_bg = (70, 30, 30)
+        elif is_uno_mode and hasattr(game_state.mode, "moves_remaining") and game_state.mode.moves_remaining > 1:
+            badge_color = GOLD_COLOR
+            badge_bg = (60, 52, 25)
+            status_text = f"Multi-Move: {game_state.mode.moves_remaining} left"
         else:
             badge_color = ACCENT_COLOR
             badge_bg = (25, 55, 40)
 
-        status_rect = pygame.Rect(px + 12, 155, pw - 24, 30)
+        status_rect = pygame.Rect(px + 12, 154, pw - 24, 30)
         pygame.draw.rect(self.screen, badge_bg, status_rect, border_radius=6)
         pygame.draw.rect(self.screen, badge_color, status_rect, width=1, border_radius=6)
 
@@ -395,7 +564,7 @@ class ChessRenderer:
         self.screen.blit(status_lbl, lbl_rect)
 
         # 3. Game Stats / History Card
-        stats_rect = pygame.Rect(px, 212, pw, 72)
+        stats_rect = pygame.Rect(px, 208, pw, 72)
         pygame.draw.rect(self.screen, PANEL_CARD_BG, stats_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, stats_rect, width=1, border_radius=8)
 
@@ -404,12 +573,12 @@ class ChessRenderer:
         
         stat1 = self.font_small.render(f"Move: {move_num}", True, TEXT_SECONDARY)
         stat2 = self.font_small.render(f"Last Move: {last_san}", True, ACCENT_COLOR)
-        self.screen.blit(stat1, (px + 14, 222))
-        self.screen.blit(stat2, (px + 14, 248))
+        self.screen.blit(stat1, (px + 14, 218))
+        self.screen.blit(stat2, (px + 14, 244))
 
         # 4. Theme Selection Section
         theme_lbl = self.font_subtitle.render("PIECE & BOARD THEME", True, TEXT_MUTED)
-        self.screen.blit(theme_lbl, (px, 298))
+        self.screen.blit(theme_lbl, (px, 292))
 
         pack_info = f"{active_pack_name} ({active_pack_index + 1}/{total_packs})"
         pack_text = self.font_small.render(pack_info, True, TEXT_PRIMARY)
@@ -426,51 +595,87 @@ class ChessRenderer:
         sound_text = "Sound: ON" if sound_enabled else "Sound: OFF"
         self._draw_button(sound_text, self.buttons.sound_toggle, mouse_pos)
 
-        # 6. Future Mod Slot Card (UNO Cards / Immortal Snail)
-        mod_rect = pygame.Rect(px, 502, pw, 230)
+        # 6. Active Mode Section: UNO Cards or Classic Placeholder
+        mod_rect = pygame.Rect(px, 498, pw, 246)
         pygame.draw.rect(self.screen, PANEL_CARD_BG, mod_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, mod_rect, width=1, border_radius=8)
 
-        mod_title = self.font_subtitle.render("MODS & UNO CARDS", True, GOLD_COLOR)
-        self.screen.blit(mod_title, (px + 14, 514))
+        if is_uno_mode and hasattr(game_state.mode, "current_card") and game_state.mode.current_card is not None:
+            card = game_state.mode.current_card
+            deck = game_state.mode.deck
 
-        mod_desc = [
-            "Reserved deck slot for",
-            "upcoming game modes:",
-            "- Chess + UNO Cards",
-            "- Immortal Snail Hazard",
-            "- Online Multiplayer",
-        ]
-        for idx, line in enumerate(mod_desc):
-            txt = self.font_small.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(txt, (px + 14, 542 + idx * 22))
+            # Draw authentic UNO card
+            card_cx = px + pw // 2
+            card_cy = 586
+            self.draw_uno_card_graphic(card, card_cx, card_cy, width=105, height=145)
 
-        # Stylized card slot placeholder outlines
-        card_w, card_h = 56, 76
-        for c in range(3):
-            cx = px + 18 + c * (card_w + 12)
-            cy = 642
-            slot = pygame.Rect(cx, cy, card_w, card_h)
-            pygame.draw.rect(self.screen, (34, 38, 46), slot, border_radius=6)
-            pygame.draw.rect(self.screen, (68, 74, 88), slot, width=1, border_radius=6)
-            slot_lbl = self.font_micro.render("CARD", True, TEXT_MUTED)
-            sl_rect = slot_lbl.get_rect(center=slot.center)
-            self.screen.blit(slot_lbl, sl_rect)
+            # Move indicator text
+            rem = game_state.mode.moves_remaining
+            tot = game_state.mode.moves_allowed
+            move_info_str = f"Moves: {tot - rem + 1} of {tot}"
+            m_surf = self.font_subtitle.render(move_info_str, True, GOLD_COLOR)
+            self.screen.blit(m_surf, m_surf.get_rect(center=(px + pw // 2, 672)))
+
+            # Deck count info
+            deck_str = f"Deck: {deck.draw_pile_count} left | Discard: {deck.discard_pile_count}"
+            d_surf = self.font_micro.render(deck_str, True, TEXT_SECONDARY)
+            self.screen.blit(d_surf, d_surf.get_rect(center=(px + pw // 2, 694)))
+
+            # Pending Skip or Alert
+            if game_state.mode.skip_alert_message:
+                alert_surf = self.font_micro.render(game_state.mode.skip_alert_message, True, CHECK_COLOR)
+                self.screen.blit(alert_surf, alert_surf.get_rect(center=(px + pw // 2, 718)))
+            elif game_state.mode.pending_skips > 0:
+                skip_surf = self.font_micro.render(f"Pending Skips: {game_state.mode.pending_skips}", True, (240, 160, 50))
+                self.screen.blit(skip_surf, skip_surf.get_rect(center=(px + pw // 2, 718)))
+            else:
+                desc_surf = self.font_micro.render(card.description, True, TEXT_MUTED)
+                self.screen.blit(desc_surf, desc_surf.get_rect(center=(px + pw // 2, 718)))
+
+        else:
+            # Classic mode placeholder
+            mod_title = self.font_subtitle.render("MODS & UNO CARDS", True, TEXT_MUTED)
+            self.screen.blit(mod_title, (px + 14, 510))
+
+            mod_desc = [
+                "Currently in Classic Chess.",
+                "Click 'Mode' at the top to",
+                "switch to Chess + UNO!",
+                "",
+                "Upcoming Mods:",
+                "- Immortal Snail Hazard",
+                "- Online Multiplayer",
+            ]
+            for idx, line in enumerate(mod_desc):
+                txt = self.font_small.render(line, True, TEXT_SECONDARY)
+                self.screen.blit(txt, (px + 14, 538 + idx * 21))
+
+            # Stylized card slot placeholder outlines
+            card_w, card_h = 56, 76
+            for c in range(3):
+                cx = px + 18 + c * (card_w + 12)
+                cy = 650
+                slot = pygame.Rect(cx, cy, card_w, card_h)
+                pygame.draw.rect(self.screen, (34, 38, 46), slot, border_radius=6)
+                pygame.draw.rect(self.screen, (68, 74, 88), slot, width=1, border_radius=6)
+                slot_lbl = self.font_micro.render("CARD", True, TEXT_MUTED)
+                sl_rect = slot_lbl.get_rect(center=slot.center)
+                self.screen.blit(slot_lbl, sl_rect)
 
         # 7. Quick Controls Footer
-        pygame.draw.line(self.screen, PANEL_BORDER, (px, 750), (px + pw, 750), 1)
+        pygame.draw.line(self.screen, PANEL_BORDER, (px, 755), (px + pw, 755), 1)
         help_title = self.font_subtitle.render("CONTROLS", True, TEXT_MUTED)
-        self.screen.blit(help_title, (px, 762))
+        self.screen.blit(help_title, (px, 765))
 
         controls = [
             "• Click piece + click target square",
             "• Or drag-and-drop piece",
             "• [R] Restart Game | [F] Flip View",
-            "• [Left / Right] Switch Theme",
+            "• [M] Sound | [Left / Right] Theme",
         ]
         for idx, line in enumerate(controls):
             ctrl_txt = self.font_micro.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(ctrl_txt, (px, 786 + idx * 18))
+            self.screen.blit(ctrl_txt, (px, 788 + idx * 18))
 
     def _draw_button(
         self,
