@@ -260,130 +260,157 @@ class ChessRenderer:
     # Immortal Snail Graphics & Entity Overlay
     # -------------------------------------------------------------------------
 
-    def get_snail_sprite(self, size: int = 76) -> pygame.Surface:
-        """Create and cache high-res distinctive Immortal Snail sprite."""
-        if size in self._snail_sprite_cache:
-            return self._snail_sprite_cache[size]
+    def get_snail_sprite(self, size: int = 76, team_color: chess.Color = chess.WHITE) -> pygame.Surface:
+        """Create and cache high-res distinctive Immortal Snail sprites for White and Black teams."""
+        cache_key = (size, team_color)
+        if cache_key in self._snail_sprite_cache:
+            return self._snail_sprite_cache[cache_key]
 
         surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        is_white_team = (team_color == chess.WHITE)
 
         # 1. Slime footprint glow
         slime_w = int(size * 0.88)
         slime_h = int(size * 0.22)
-        pygame.draw.ellipse(surf, (150, 235, 75, 90), (int(size * 0.06), size - slime_h - 2, slime_w, slime_h))
+        slime_glow_color = (110, 245, 215, 95) if is_white_team else (245, 80, 80, 95)
+        pygame.draw.ellipse(surf, slime_glow_color, (int(size * 0.06), size - slime_h - 2, slime_w, slime_h))
 
         # 2. Body foot / slug base
         foot_w = int(size * 0.78)
         foot_h = int(size * 0.24)
         foot_rect = pygame.Rect(int(size * 0.12), size - foot_h - 4, foot_w, foot_h)
-        pygame.draw.ellipse(surf, (160, 180, 105), foot_rect)
-        pygame.draw.ellipse(surf, (100, 120, 55), foot_rect, 2)
+        foot_color = (220, 230, 215) if is_white_team else (70, 65, 78)
+        foot_outline = (130, 150, 125) if is_white_team else (35, 30, 42)
+        pygame.draw.ellipse(surf, foot_color, foot_rect)
+        pygame.draw.ellipse(surf, foot_outline, foot_rect, 2)
 
         # 3. Head & Eyestalks
         head_cx = int(size * 0.76)
         head_cy = int(size * 0.65)
         head_r = int(size * 0.15)
-        pygame.draw.circle(surf, (165, 185, 110), (head_cx, head_cy), head_r)
-        pygame.draw.circle(surf, (100, 120, 55), (head_cx, head_cy), head_r, 2)
+        head_color = (225, 235, 220) if is_white_team else (78, 72, 85)
+        pygame.draw.circle(surf, head_color, (head_cx, head_cy), head_r)
+        pygame.draw.circle(surf, foot_outline, (head_cx, head_cy), head_r, 2)
 
         stalk1_tip = (head_cx - 4, head_cy - int(size * 0.26))
         stalk2_tip = (head_cx + 7, head_cy - int(size * 0.23))
-        pygame.draw.line(surf, (100, 120, 55), (head_cx - 4, head_cy - 4), stalk1_tip, 3)
-        pygame.draw.line(surf, (100, 120, 55), (head_cx + 4, head_cy - 4), stalk2_tip, 3)
+        pygame.draw.line(surf, foot_outline, (head_cx - 4, head_cy - 4), stalk1_tip, 3)
+        pygame.draw.line(surf, foot_outline, (head_cx + 4, head_cy - 4), stalk2_tip, 3)
 
         # Shiny eyes with white highlights
         for tip in (stalk1_tip, stalk2_tip):
             pygame.draw.circle(surf, (255, 255, 255), tip, 4)
-            pygame.draw.circle(surf, (25, 25, 25), (tip[0] + 1, tip[1]), 2)
+            pupil_color = (25, 25, 35) if is_white_team else (235, 50, 50)
+            pygame.draw.circle(surf, pupil_color, (tip[0] + 1, tip[1]), 2)
 
-        # 4. Stylized Golden Amber Shell
+        # 4. Stylized Shell
         shell_center = (int(size * 0.44), int(size * 0.44))
         shell_r = int(size * 0.38)
-        pygame.draw.circle(surf, (215, 135, 40), shell_center, shell_r)
-        pygame.draw.circle(surf, (115, 60, 15), shell_center, shell_r, 2)
+        shell_color = (245, 230, 185) if is_white_team else (48, 38, 48)
+        shell_border = (145, 120, 60) if is_white_team else (25, 18, 25)
+        pygame.draw.circle(surf, shell_color, shell_center, shell_r)
+        pygame.draw.circle(surf, shell_border, shell_center, shell_r, 2)
 
         # Concentric spiral whorls
-        for factor, col in [(0.78, (245, 175, 60)), (0.55, (190, 115, 30)), (0.32, (255, 205, 80))]:
+        if is_white_team:
+            whorl_colors = [(0.78, (255, 205, 75)), (0.55, (220, 180, 50)), (0.32, (255, 230, 140))]
+        else:
+            whorl_colors = [(0.78, (235, 95, 45)), (0.55, (180, 50, 30)), (0.32, (255, 140, 60))]
+
+        for factor, col in whorl_colors:
             r = int(shell_r * factor)
             if r > 4:
                 pygame.draw.circle(surf, col, shell_center, r, 2)
-        pygame.draw.circle(surf, (255, 215, 110), shell_center, max(3, int(shell_r * 0.16)))
+        center_pip = (255, 240, 180) if is_white_team else (255, 120, 70)
+        pygame.draw.circle(surf, center_pip, shell_center, max(3, int(shell_r * 0.16)))
 
         # Specular gloss highlight
         hl_w = int(shell_r * 0.95)
         hl_h = int(shell_r * 0.48)
-        pygame.draw.ellipse(surf, (255, 255, 255, 115), (shell_center[0] - shell_r + 4, shell_center[1] - shell_r + 4, hl_w, hl_h))
+        pygame.draw.ellipse(surf, (255, 255, 255, 120), (shell_center[0] - shell_r + 4, shell_center[1] - shell_r + 4, hl_w, hl_h))
 
-        self._snail_sprite_cache[size] = surf
+        self._snail_sprite_cache[cache_key] = surf
         return surf
 
     def draw_snail(self, game_state: GameState, flipped: bool = False) -> None:
-        """Render the Immortal Snail, its slime trail, and the target king crosshair."""
-        if not hasattr(game_state.mode, "is_on_board"):
+        """Render both Immortal Snails, their slime trails, and pursuit reticles."""
+        if not hasattr(game_state.mode, "snails"):
             return
         mode = game_state.mode
+        snails = mode.snails
 
-        # 1. Slime Trail on traversed squares
-        if hasattr(mode, "trail") and mode.trail:
-            for (f, r) in mode.trail:
-                if 0 <= f <= 7 and 0 <= r <= 7:
-                    t_sq = chess.square(f, r)
-                    t_rect = square_to_rect(
-                        t_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
-                    )
-                    slime_surf = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
-                    pygame.draw.circle(slime_surf, (140, 230, 80, 45), (self.square_size // 2, self.square_size // 2), 16)
-                    pygame.draw.circle(slime_surf, (180, 255, 100, 70), (self.square_size // 2, self.square_size // 2), 8)
-                    self.screen.blit(slime_surf, t_rect)
+        for snail in snails:
+            is_white_team = (snail.team_color == chess.WHITE)
 
-        # 2. Target King Pursued Reticle
-        target_sq = game_state.king_square(mode.target_color)
-        if target_sq is not None:
-            k_rect = square_to_rect(
-                target_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
-            )
-            pulse = abs(math.sin(pygame.time.get_ticks() / 300))
-            k_glow = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
-            glow_alpha = int(75 + 85 * pulse)
-            pygame.draw.rect(k_glow, (240, 80, 80, glow_alpha), (0, 0, self.square_size, self.square_size), width=3, border_radius=4)
-            # Corner brackets
-            b_len = 12
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, 0), (b_len, 0), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, 0), (0, b_len), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, 0), (self.square_size - 1 - b_len, 0), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, 0), (self.square_size - 1, b_len), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, self.square_size - 1), (b_len, self.square_size - 1), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, self.square_size - 1), (0, self.square_size - 1 - b_len), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, self.square_size - 1), (self.square_size - 1 - b_len, self.square_size - 1), 2)
-            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, self.square_size - 1), (self.square_size - 1, self.square_size - 1 - b_len), 2)
-            self.screen.blit(k_glow, k_rect)
+            # 1. Slime Trail
+            if snail.trail:
+                trail_color = (110, 240, 210, 45) if is_white_team else (240, 80, 80, 45)
+                trail_inner = (160, 255, 235, 70) if is_white_team else (255, 130, 110, 70)
+                for (f, r) in snail.trail:
+                    if 0 <= f <= 7 and 0 <= r <= 7:
+                        t_sq = chess.square(f, r)
+                        t_rect = square_to_rect(
+                            t_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+                        )
+                        slime_surf = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+                        pygame.draw.circle(slime_surf, trail_color, (self.square_size // 2, self.square_size // 2), 15)
+                        pygame.draw.circle(slime_surf, trail_inner, (self.square_size // 2, self.square_size // 2), 7)
+                        self.screen.blit(slime_surf, t_rect)
 
-        # 3. Draw Snail Entity
-        snail_sprite = self.get_snail_sprite(size=int(self.square_size * 0.76))
-        if mode.is_on_board and mode.square is not None:
-            s_rect = square_to_rect(
-                mode.square, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
-            )
-            spr_rect = snail_sprite.get_rect(center=s_rect.center)
-            self.screen.blit(snail_sprite, spr_rect)
-        else:
-            # Off-board spawn point
-            f, r = mode.current_pos
-            col = f if not flipped else 7 - f
-            row = (7 - r) if not flipped else r
-            cx = self.board_x + col * self.square_size + self.square_size // 2
-            cy = self.board_y + row * self.square_size + self.square_size // 2
+            # 2. Target King Pursued Reticle
+            target_sq = game_state.king_square(snail.target_color)
+            if target_sq is not None:
+                k_rect = square_to_rect(
+                    target_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+                )
+                pulse = abs(math.sin(pygame.time.get_ticks() / 280))
+                k_glow = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+                glow_alpha = int(70 + 80 * pulse)
+                reticle_color = (90, 230, 210, glow_alpha) if is_white_team else (245, 80, 80, glow_alpha)
+                line_color = (140, 255, 230, glow_alpha) if is_white_team else (255, 110, 110, glow_alpha)
 
-            # Off-board badge
-            badge_rect = pygame.Rect(0, 0, 96, 22)
-            badge_rect.center = (cx, cy - 28)
-            pygame.draw.rect(self.screen, (40, 48, 36), badge_rect, border_radius=6)
-            pygame.draw.rect(self.screen, (140, 220, 80), badge_rect, width=1, border_radius=6)
-            entry_lbl = self.font_micro.render("SNAIL ENTRY", True, (160, 240, 90))
-            self.screen.blit(entry_lbl, entry_lbl.get_rect(center=badge_rect.center))
+                pygame.draw.rect(k_glow, reticle_color, (0, 0, self.square_size, self.square_size), width=3, border_radius=4)
+                b_len = 12
+                pygame.draw.line(k_glow, line_color, (0, 0), (b_len, 0), 2)
+                pygame.draw.line(k_glow, line_color, (0, 0), (0, b_len), 2)
+                pygame.draw.line(k_glow, line_color, (self.square_size - 1, 0), (self.square_size - 1 - b_len, 0), 2)
+                pygame.draw.line(k_glow, line_color, (self.square_size - 1, 0), (self.square_size - 1, b_len), 2)
+                pygame.draw.line(k_glow, line_color, (0, self.square_size - 1), (b_len, self.square_size - 1), 2)
+                pygame.draw.line(k_glow, line_color, (0, self.square_size - 1), (0, self.square_size - 1 - b_len), 2)
+                pygame.draw.line(k_glow, line_color, (self.square_size - 1, self.square_size - 1), (self.square_size - 1 - b_len, self.square_size - 1), 2)
+                pygame.draw.line(k_glow, line_color, (self.square_size - 1, self.square_size - 1), (self.square_size - 1, self.square_size - 1 - b_len), 2)
+                self.screen.blit(k_glow, k_rect)
 
-            spr_rect = snail_sprite.get_rect(center=(cx, cy))
-            self.screen.blit(snail_sprite, spr_rect)
+            # 3. Draw Snail Entity
+            snail_sprite = self.get_snail_sprite(size=int(self.square_size * 0.76), team_color=snail.team_color)
+            if snail.is_on_board and snail.square is not None:
+                s_rect = square_to_rect(
+                    snail.square, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+                )
+                spr_rect = snail_sprite.get_rect(center=s_rect.center)
+                self.screen.blit(snail_sprite, spr_rect)
+            else:
+                # Off-board spawn point
+                f, r = snail.current_pos
+                col = f if not flipped else 7 - f
+                row = (7 - r) if not flipped else r
+                cx = self.board_x + col * self.square_size + self.square_size // 2
+                cy = self.board_y + row * self.square_size + self.square_size // 2
+
+                badge_rect = pygame.Rect(0, 0, 96, 22)
+                badge_rect.center = (cx, cy - 28)
+                badge_bg = (34, 48, 44) if is_white_team else (48, 34, 38)
+                badge_border = (110, 240, 210) if is_white_team else (245, 90, 90)
+                badge_text_col = (130, 255, 225) if is_white_team else (255, 110, 110)
+                badge_name = "WHITE SNAIL" if is_white_team else "BLACK SNAIL"
+
+                pygame.draw.rect(self.screen, badge_bg, badge_rect, border_radius=6)
+                pygame.draw.rect(self.screen, badge_border, badge_rect, width=1, border_radius=6)
+                entry_lbl = self.font_micro.render(badge_name, True, badge_text_col)
+                self.screen.blit(entry_lbl, entry_lbl.get_rect(center=badge_rect.center))
+
+                spr_rect = snail_sprite.get_rect(center=(cx, cy))
+                self.screen.blit(snail_sprite, spr_rect)
 
     # -------------------------------------------------------------------------
     # Promotion Modal
@@ -925,78 +952,76 @@ class ChessRenderer:
 
         elif is_snail_mode:
             mode = game_state.mode
-            mod_title = self.font_subtitle.render("IMMORTAL SNAIL", True, (140, 230, 90))
-            self.screen.blit(mod_title, (px + 14, 508))
+            mod_title = self.font_subtitle.render("DUAL IMMORTAL SNAILS", True, (140, 230, 90))
+            self.screen.blit(mod_title, (px + 14, 506))
 
-            # Target King Selection / Display
-            if mode.total_legal_moves == 0:
-                t_lbl = self.font_micro.render("TARGET KING (CLICK TO CHOOSE):", True, TEXT_MUTED)
-                self.screen.blit(t_lbl, (px + 14, 526))
-
-                w_active = (mode.target_color == chess.WHITE)
-                b_active = (mode.target_color == chess.BLACK)
-                self._draw_button("White King", self.buttons.target_white, mouse_pos, accent=w_active)
-                self._draw_button("Black King", self.buttons.target_black, mouse_pos, accent=b_active)
-            else:
-                t_badge_str = f"TARGET: {mode.target_name.upper()} KING (LOCKED)"
-                t_badge = self.font_subtitle.render(t_badge_str, True, (245, 160, 60))
-                self.screen.blit(t_badge, (px + 14, 532))
-
-            stats_y = 574
-            # 1. Location
-            loc_str = f"Location: {mode.location_name}"
-            loc_surf = self.font_small.render(loc_str, True, TEXT_PRIMARY)
-            self.screen.blit(loc_surf, (px + 14, stats_y))
-
-            # 2. Distance to Target
-            dist = mode.distance_to_target(game_state)
-            dist_str = f"Distance: {dist} tiles away" if dist is not None else "Distance: N/A"
-            dist_surf = self.font_small.render(dist_str, True, TEXT_SECONDARY)
-            self.screen.blit(dist_surf, (px + 14, stats_y + 22))
-
-            # 3. Next step countdown with segmented glowing indicators
-            step_lbl = self.font_small.render("Next step:", True, TEXT_PRIMARY)
-            self.screen.blit(step_lbl, (px + 14, stats_y + 46))
-
+            # Move Countdown (Every 5 moves)
             rem_moves = mode.moves_until_next_step
-            pip_w = 34
-            pip_h = 16
-            pip_start_x = px + 90
-            for p in range(3):
-                pip_rect = pygame.Rect(pip_start_x + p * (pip_w + 6), stats_y + 46, pip_w, pip_h)
-                filled = (p < (3 - rem_moves))
+            step_lbl = self.font_small.render("Next step:", True, TEXT_PRIMARY)
+            self.screen.blit(step_lbl, (px + 14, 528))
+
+            pip_w = 22
+            pip_h = 14
+            pip_start_x = px + 88
+            for p in range(5):
+                pip_rect = pygame.Rect(pip_start_x + p * (pip_w + 4), 530, pip_w, pip_h)
+                filled = (p < (5 - rem_moves))
                 if filled:
-                    pygame.draw.rect(self.screen, (140, 220, 80), pip_rect, border_radius=4)
+                    pygame.draw.rect(self.screen, (140, 220, 80), pip_rect, border_radius=3)
                 else:
-                    pygame.draw.rect(self.screen, (50, 56, 68), pip_rect, border_radius=4)
-                    pygame.draw.rect(self.screen, (75, 82, 98), pip_rect, width=1, border_radius=4)
+                    pygame.draw.rect(self.screen, (50, 56, 68), pip_rect, border_radius=3)
+                    pygame.draw.rect(self.screen, (75, 82, 98), pip_rect, width=1, border_radius=3)
 
-            step_desc = f"{rem_moves} legal move{'s' if rem_moves > 1 else ''} remaining"
-            desc_surf = self.font_micro.render(step_desc, True, (140, 220, 80) if rem_moves == 1 else TEXT_MUTED)
-            self.screen.blit(desc_surf, (px + 14, stats_y + 68))
+            count_desc = f"{rem_moves} legal move{'s' if rem_moves > 1 else ''} until step (every 5)"
+            desc_surf = self.font_micro.render(count_desc, True, (140, 220, 80) if rem_moves == 1 else TEXT_MUTED)
+            self.screen.blit(desc_surf, (px + 14, 548))
 
-            # 4. Crushed pieces or steps taken
-            if mode.crushed_pieces:
-                crush_str = f"Crushed: {len(mode.crushed_pieces)} ({', '.join(mode.crushed_pieces[-4:])})"
-                crush_surf = self.font_micro.render(crush_str, True, (240, 140, 80))
-                self.screen.blit(crush_surf, (px + 14, stats_y + 88))
-            else:
-                steps_str = f"Steps taken: {mode.steps_taken}"
-                steps_surf = self.font_micro.render(steps_str, True, TEXT_MUTED)
-                self.screen.blit(steps_surf, (px + 14, stats_y + 88))
+            # White Snail Info Card
+            w_snail = mode.white_snail
+            w_dist = w_snail.distance_to_target(game_state)
+            w_dist_str = f"{w_dist} tiles" if w_dist is not None else "N/A"
+            w_card_rect = pygame.Rect(px + 10, 568, pw - 20, 54)
+            pygame.draw.rect(self.screen, (34, 46, 42), w_card_rect, border_radius=6)
+            pygame.draw.rect(self.screen, (90, 215, 185), w_card_rect, width=1, border_radius=6)
+
+            w_title = self.font_micro.render(f"WHITE SNAIL [{w_snail.location_name}]", True, (140, 255, 230))
+            w_sub1 = self.font_micro.render(f"Hunting Black King ({w_dist_str} away)", True, TEXT_PRIMARY)
+            w_sub2 = self.font_micro.render(f"Crushed: {len(w_snail.crushed_pieces)} Black pieces", True, TEXT_MUTED)
+            self.screen.blit(w_title, (px + 16, 572))
+            self.screen.blit(w_sub1, (px + 16, 588))
+            self.screen.blit(w_sub2, (px + 16, 604))
+
+            # Black Snail Info Card
+            b_snail = mode.black_snail
+            b_dist = b_snail.distance_to_target(game_state)
+            b_dist_str = f"{b_dist} tiles" if b_dist is not None else "N/A"
+            b_card_rect = pygame.Rect(px + 10, 626, pw - 20, 54)
+            pygame.draw.rect(self.screen, (46, 34, 38), b_card_rect, border_radius=6)
+            pygame.draw.rect(self.screen, (240, 95, 95), b_card_rect, width=1, border_radius=6)
+
+            b_title = self.font_micro.render(f"BLACK SNAIL [{b_snail.location_name}]", True, (255, 140, 140))
+            b_sub1 = self.font_micro.render(f"Hunting White King ({b_dist_str} away)", True, TEXT_PRIMARY)
+            b_sub2 = self.font_micro.render(f"Crushed: {len(b_snail.crushed_pieces)} White pieces", True, TEXT_MUTED)
+            self.screen.blit(b_title, (px + 16, 630))
+            self.screen.blit(b_sub1, (px + 16, 646))
+            self.screen.blit(b_sub2, (px + 16, 662))
+
+            # Friendly Safety Notice
+            safe_lbl = self.font_micro.render("Friendly pieces safe: Snails detour around own team", True, (130, 205, 140))
+            self.screen.blit(safe_lbl, safe_lbl.get_rect(center=(px + pw // 2, 692)))
 
             # Alert or Victory
             if mode.target_caught:
-                win_rect = pygame.Rect(px + 10, 686, pw - 20, 48)
+                win_rect = pygame.Rect(px + 10, 706, pw - 20, 32)
                 pygame.draw.rect(self.screen, (70, 25, 25), win_rect, border_radius=6)
                 pygame.draw.rect(self.screen, CHECK_COLOR, win_rect, width=2, border_radius=6)
-                w_title = self.font_subtitle.render("TARGET KING CAUGHT!", True, CHECK_COLOR)
-                w_sub = self.font_micro.render(f"{mode.opponent_name} Wins by Snail Pursuit!", True, TEXT_PRIMARY)
-                self.screen.blit(w_title, w_title.get_rect(center=(win_rect.centerx, win_rect.y + 14)))
-                self.screen.blit(w_sub, w_sub.get_rect(center=(win_rect.centerx, win_rect.y + 32)))
+                vic_msg = "WHITE SNAIL CAUGHT BLACK KING!" if w_snail.target_caught else "BLACK SNAIL CAUGHT WHITE KING!"
+                w_title = self.font_micro.render(vic_msg, True, CHECK_COLOR)
+                self.screen.blit(w_title, w_title.get_rect(center=win_rect.center))
             else:
-                msg_surf = self.font_micro.render(mode.status_message, True, TEXT_SECONDARY)
-                self.screen.blit(msg_surf, (px + 14, 715))
+                steps_txt = f"Total steps taken: {mode.steps_taken}"
+                s_surf = self.font_micro.render(steps_txt, True, TEXT_MUTED)
+                self.screen.blit(s_surf, s_surf.get_rect(center=(px + pw // 2, 715)))
 
         else:
             # Classic mode placeholder
