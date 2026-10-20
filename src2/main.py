@@ -1,483 +1,350 @@
-
 # main.py
+"""
+Chessno - Main Application Entry Point
 
+Features:
+- Complete standard FIDE chess rules via python-chess (castling, en passant, promotion, checks, checkmate, draws)
+- Seamless dual interaction: click-to-move AND drag-and-drop
+- In-game interactive pawn promotion selector
+- Real-time square highlighting for legal moves, captures, last move, and king in check
+- Dynamic asset pack (theme) switching
+- Audio system with custom WAV file support and procedural fallback
+- Board flip capability (view from White or Black perspective)
+- Extensible architecture ready for Chess + UNO, Immortal Snail, and Multiplayer
+"""
+
+import sys
+from pathlib import Path
+from typing import Optional, Tuple, List
 import pygame
+import chess
+
+# Ensure local imports resolve when executed directly or via root
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import Assets
 import ChessMatrix
+from coordinates import (
+    BOARD_X,
+    BOARD_Y,
+    SQUARE_SIZE,
+    BOARD_SIZE,
+    pixel_to_square,
+    piece_to_code,
+)
+from game_engine import GameState, ClassicChessMode
+from renderer import ChessRenderer, BG_COLOR
 
-pygame.init()
-
-# ============================================================
-# 1. WINDOW AND BOARD CONFIGURATION
-# ============================================================
-
+# Window dimensions
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 900
-
-BOARD_X = 50
-BOARD_Y = 50
-SQUARE_SIZE = 100
-BOARD_SIZE = SQUARE_SIZE * 8
-
 PANEL_X = 900
 PANEL_WIDTH = 270
 
-BACKGROUND_COLOR = (35, 38, 44)
-PANEL_COLOR = (48, 52, 60)
-TEXT_COLOR = (240, 240, 240)
-BUTTON_COLOR = (75, 85, 100)
-BUTTON_HOVER_COLOR = (100, 115, 135)
-ACCENT_COLOR = (100, 180, 130)
 
-screen = pygame.display.set_mode(
-    (WINDOW_WIDTH, WINDOW_HEIGHT)
-)
-pygame.display.set_caption("Chess")
-
-clock = pygame.time.Clock()
-FPS = 60
-
-font = pygame.font.SysFont("arial", 22)
-small_font = pygame.font.SysFont("arial", 16)
-title_font = pygame.font.SysFont("arial", 28, bold=True)
-
-
-# ============================================================
-# 2. LOAD ASSETS
-# ============================================================
-
-board_image, piece_images = Assets.load_assets()
-
-available_packs = Assets.get_available_packs()
-
-if not available_packs:
-    raise RuntimeError(
-        "No asset packs found. Check your assets folder."
-    )
-
-active_pack_index = available_packs.index(
-    Assets.get_active_asset_pack()
-)
-
-
-# ============================================================
-# 3. DRAG-AND-DROP STATE
-# ============================================================
-
-selected_piece = None
-selected_pos = None
-dragging = False
-
-# These positions are used to highlight the selected square.
-last_move = None
-
-
-# ============================================================
-# 4. UI HELPERS
-# ============================================================
-
-def draw_text(text, x, y, font_object=font, color=TEXT_COLOR):
-    image = font_object.render(
-        str(text), True, color
-    )
-    screen.blit(image, (x, y))
-
-
-def draw_button(text, rect, mouse_pos):
-    hovered = rect.collidepoint(mouse_pos)
-
-    color = BUTTON_HOVER_COLOR if hovered else BUTTON_COLOR
-
-    pygame.draw.rect(
-        screen, color, rect, border_radius=8
-    )
-
-    pygame.draw.rect(
-        screen, (110, 120, 135), rect,
-        width=1, border_radius=8
-    )
-
-    label = font.render(text, True, TEXT_COLOR)
-    label_rect = label.get_rect(center=rect.center)
-    screen.blit(label, label_rect)
-
-
-# Panel button positions.
-previous_button = pygame.Rect(PANEL_X, 250, 65, 45)
-next_button = pygame.Rect(PANEL_X + 205, 250, 65, 45)
-move_sound_button = pygame.Rect(PANEL_X, 420, PANEL_WIDTH, 42)
-capture_sound_button = pygame.Rect(PANEL_X, 475, PANEL_WIDTH, 42)
-
-
-def change_asset_pack(direction):
-    """Switch to the previous or next available theme."""
-
-    global active_pack_index
-    global board_image, piece_images
-
-    if not available_packs:
-        return
-
-    new_index = (
-        active_pack_index + direction
-    ) % len(available_packs)
-
-    pack_name = available_packs[new_index]
-
-    # Load first, then update the selected index.
-    new_board, new_pieces = Assets.switch_asset_pack(
-        pack_name
-    )
-
-    board_image = new_board
-    piece_images = new_pieces
-    active_pack_index = new_index
-
-
-# ============================================================
-# 5. BOARD COORDINATES
-# ============================================================
-
-def get_square(mouse_pos):
-    """Convert mouse coordinates into a board row and column."""
-
-    mouse_x, mouse_y = mouse_pos
-
-    col = (mouse_x - BOARD_X) // SQUARE_SIZE
-    row = (mouse_y - BOARD_Y) // SQUARE_SIZE
-
-    if ChessMatrix.inside_board(row, col):
-        return row, col
-
-    return None
-
-
-def get_piece_position(row, col, image):
-    """Center a piece within its board square."""
-
-    square_x = BOARD_X + col * SQUARE_SIZE
-    square_y = BOARD_Y + row * SQUARE_SIZE
-
-    x = square_x + (
-        SQUARE_SIZE - image.get_width()
-    ) // 2
-
-    y = square_y + (
-        SQUARE_SIZE - image.get_height()
-    ) // 2
-
-    return x, y
-
-
-# ============================================================
-# 6. DRAW BOARD AND PIECES
-# ============================================================
-
-def draw_board():
-    screen.blit(board_image, (BOARD_X, BOARD_Y))
-
-    # Highlight the selected square.
-    if selected_pos is not None:
-        row, col = selected_pos
-
-        rect = pygame.Rect(
-            BOARD_X + col * SQUARE_SIZE,
-            BOARD_Y + row * SQUARE_SIZE,
-            SQUARE_SIZE,
-            SQUARE_SIZE
-        )
-
-        overlay = pygame.Surface(
-            (SQUARE_SIZE, SQUARE_SIZE),
-            pygame.SRCALPHA
-        )
-        overlay.fill((255, 220, 0, 70))
-        screen.blit(overlay, rect.topleft)
-
-    # Highlight the last successfully completed move.
-    if last_move is not None:
-        for row, col in last_move:
-            rect = pygame.Rect(
-                BOARD_X + col * SQUARE_SIZE,
-                BOARD_Y + row * SQUARE_SIZE,
-                SQUARE_SIZE,
-                SQUARE_SIZE
-            )
-
-            overlay = pygame.Surface(
-                (SQUARE_SIZE, SQUARE_SIZE),
-                pygame.SRCALPHA
-            )
-            overlay.fill((50, 200, 100, 55))
-            screen.blit(overlay, rect.topleft)
-
-
-def draw_pieces():
-    for row in range(8):
-        for col in range(8):
-
-            piece = ChessMatrix.matrix[row][col]
-
-            if piece is None:
-                continue
-
-            # Hide the original sprite while dragging it.
-            if dragging and selected_pos == (row, col):
-                continue
-
-            image = piece_images[piece]
-
-            position = get_piece_position(
-                row, col, image
-            )
-
-            screen.blit(image, position)
-
-
-# ============================================================
-# 7. DRAW RIGHT-HAND PANEL
-# ============================================================
-
-def draw_panel(mouse_pos):
-    panel_rect = pygame.Rect(
-        PANEL_X - 15, 0,
-        WINDOW_WIDTH - PANEL_X + 15,
-        WINDOW_HEIGHT
-    )
-
-    pygame.draw.rect(
-        screen, PANEL_COLOR, panel_rect
-    )
-
-    # Header
-    draw_text(
-        "CHESS SETTINGS",
-        PANEL_X, 55,
-        title_font
-    )
-
-    pygame.draw.line(
-        screen, (100, 105, 115),
-        (PANEL_X, 100),
-        (PANEL_X + PANEL_WIDTH, 100),
-        2
-    )
-
-    # Asset pack section
-    draw_text(
-        "Piece & Board Theme",
-        PANEL_X, 145
-    )
-
-    draw_text(
-        f"Theme {active_pack_index + 1} of {len(available_packs)}",
-        PANEL_X, 190,
-        small_font, (190, 195, 205)
-    )
-
-    # Theme name
-    pack_name = Assets.get_active_asset_pack()
-
-    draw_text(
-        pack_name,
-        PANEL_X, 215,
-        small_font, ACCENT_COLOR
-    )
-
-    draw_button(
-        "< Prev", previous_button, mouse_pos
-    )
-
-    draw_button(
-        "Next >", next_button, mouse_pos
-    )
-
-    # Sound section
-    pygame.draw.line(
-        screen, (100, 105, 115),
-        (PANEL_X, 320),
-        (PANEL_X + PANEL_WIDTH, 320),
-        2
-    )
-
-    draw_text(
-        "Sound Preview",
-        PANEL_X, 355
-    )
-
-    draw_button(
-        "Test Move Sound",
-        move_sound_button,
-        mouse_pos
-    )
-
-    draw_button(
-        "Test Capture Sound",
-        capture_sound_button,
-        mouse_pos
-    )
-
-    # Instructions
-    pygame.draw.line(
-        screen, (100, 105, 115),
-        (PANEL_X, 550),
-        (PANEL_X + PANEL_WIDTH, 550),
-        2
-    )
-
-    draw_text("Controls", PANEL_X, 580)
-
-    instructions = [
-        "1. Click a piece.",
-        "2. Hold and drag it.",
-        "3. Release on a square.",
-        "",
-        "Invalid moves are rejected.",
-        "Theme changes keep the",
-        "current board position."
-    ]
-
-    for index, line in enumerate(instructions):
-        draw_text(
-            line,
-            PANEL_X,
-            620 + index * 25,
-            small_font
-        )
-
-
-# ============================================================
-# 8. MOUSE INPUT
-# ============================================================
-
-def handle_mouse_down(mouse_pos):
-    global selected_piece, selected_pos, dragging
-
-    # Check whether a theme button was clicked.
-    if previous_button.collidepoint(mouse_pos):
-        change_asset_pack(-1)
-        return
-
-    if next_button.collidepoint(mouse_pos):
-        change_asset_pack(1)
-        return
-
-    # Sound preview buttons.
-    if move_sound_button.collidepoint(mouse_pos):
-        Assets.play_sound("move")
-        return
-
-    if capture_sound_button.collidepoint(mouse_pos):
+def play_move_sound(result) -> None:
+    """Trigger the appropriate sound effect based on the move's outcome."""
+    if result.is_checkmate:
+        Assets.play_sound("game_over")
+    elif result.is_check:
+        Assets.play_sound("check")
+    elif result.is_promotion:
+        Assets.play_sound("promotion")
+    elif result.is_castling:
+        Assets.play_sound("castle")
+    elif result.is_capture:
         Assets.play_sound("capture")
-        return
-
-    # Otherwise, attempt to select a chess piece.
-    square = get_square(mouse_pos)
-
-    if square is None:
-        return
-
-    row, col = square
-    piece = ChessMatrix.matrix[row][col]
-
-    if piece is not None:
-        selected_piece = piece
-        selected_pos = square
-        dragging = True
+    else:
+        Assets.play_sound("move")
 
 
-def handle_mouse_up(mouse_pos):
-    global selected_piece, selected_pos
-    global dragging, last_move
+def main() -> None:
+    # 1. Initialize Pygame
+    pygame.init()
+    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    pygame.display.set_caption("Chessno - Complete Chess")
+    clock = pygame.time.Clock()
+    FPS = 60
 
-    if not dragging:
-        return
+    # 2. Load Assets & Themes
+    board_image, piece_images = Assets.load_assets()
+    available_packs = Assets.get_available_packs()
+    if not available_packs:
+        raise RuntimeError("No asset packs found. Ensure 'assets' directory contains at least one theme.")
 
-    target = get_square(mouse_pos)
+    active_pack_index = available_packs.index(Assets.get_active_asset_pack())
 
-    if target is not None:
-        source = selected_pos
-        target_piece = ChessMatrix.matrix[
-            target[0]
-        ][target[1]]
+    # 3. Initialize Game Engine & Authoritative State
+    game_state = GameState(mode=ClassicChessMode())
+    ChessMatrix.set_active_game_state(game_state)
 
-        moved = ChessMatrix.move_piece(
-            source, target
+    # 4. Initialize Renderer
+    renderer = ChessRenderer(
+        screen=screen,
+        board_x=BOARD_X,
+        board_y=BOARD_Y,
+        square_size=SQUARE_SIZE,
+        panel_x=PANEL_X,
+        panel_width=PANEL_WIDTH,
+    )
+
+    # 5. Interaction State
+    selected_square: Optional[chess.Square] = None
+    legal_destinations: List[chess.Square] = []
+    dragging: bool = False
+    drag_start_square: Optional[chess.Square] = None
+    flipped: bool = False  # False: White at bottom; True: Black at bottom
+    pending_promotion: Optional[Tuple[chess.Square, chess.Square]] = None
+
+    Assets.play_sound("game_start")
+
+    def change_theme(direction: int) -> None:
+        nonlocal active_pack_index, board_image, piece_images
+        new_index = (active_pack_index + direction) % len(available_packs)
+        pack_name = available_packs[new_index]
+        try:
+            new_board, new_pieces = Assets.switch_asset_pack(pack_name)
+            board_image = new_board
+            piece_images = new_pieces
+            active_pack_index = new_index
+        except Exception as err:
+            print(f"Error switching theme to '{pack_name}': {err}")
+
+    # 6. Main Game Loop
+    running = True
+    while running:
+        mouse_pos = pygame.mouse.get_pos()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+            # ---------------------------------------------------------
+            # MOUSE BUTTON DOWN
+            # ---------------------------------------------------------
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Handle promotion modal interaction
+                if pending_promotion is not None:
+                    from_sq, to_sq = pending_promotion
+                    options = renderer.get_promotion_options(game_state.turn, to_sq, flipped=flipped)
+                    option_clicked = False
+                    for ptype, btn_rect, _ in options:
+                        if btn_rect.collidepoint(event.pos):
+                            # Commit move with chosen promotion piece
+                            result = game_state.make_move(from_sq, to_sq, promotion=ptype)
+                            if result.success:
+                                play_move_sound(result)
+                            pending_promotion = None
+                            selected_square = None
+                            legal_destinations = []
+                            option_clicked = True
+                            break
+
+                    if not option_clicked:
+                        # Clicked outside modal: cancel promotion and selection
+                        pending_promotion = None
+                        selected_square = None
+                        legal_destinations = []
+                    continue
+
+                # Check UI Button Clicks
+                if renderer.buttons.prev_theme.collidepoint(event.pos):
+                    change_theme(-1)
+                    continue
+
+                if renderer.buttons.next_theme.collidepoint(event.pos):
+                    change_theme(1)
+                    continue
+
+                if renderer.buttons.new_game.collidepoint(event.pos):
+                    game_state.reset()
+                    selected_square = None
+                    legal_destinations = []
+                    dragging = False
+                    drag_start_square = None
+                    pending_promotion = None
+                    Assets.play_sound("game_start")
+                    continue
+
+                if renderer.buttons.flip_board.collidepoint(event.pos):
+                    flipped = not flipped
+                    continue
+
+                if renderer.buttons.sound_toggle.collidepoint(event.pos):
+                    Assets.toggle_sound()
+                    continue
+
+                # Board square click
+                clicked_sq = pixel_to_square(
+                    event.pos,
+                    flipped=flipped,
+                    board_x=BOARD_X,
+                    board_y=BOARD_Y,
+                    square_size=SQUARE_SIZE,
+                )
+
+                if clicked_sq is not None:
+                    # Case 1: Already had a piece selected
+                    if selected_square is not None:
+                        # Click-to-move destination?
+                        if clicked_sq in legal_destinations:
+                            if game_state.needs_promotion(selected_square, clicked_sq):
+                                pending_promotion = (selected_square, clicked_sq)
+                            else:
+                                result = game_state.make_move(selected_square, clicked_sq)
+                                if result.success:
+                                    play_move_sound(result)
+                                selected_square = None
+                                legal_destinations = []
+                        else:
+                            # Clicked another piece of the same player?
+                            piece = game_state.get_piece_at(clicked_sq)
+                            if piece is not None and piece.color == game_state.turn:
+                                selected_square = clicked_sq
+                                legal_destinations = game_state.get_legal_destinations(clicked_sq)
+                                dragging = True
+                                drag_start_square = clicked_sq
+                            else:
+                                # Deselect
+                                selected_square = None
+                                legal_destinations = []
+
+                    # Case 2: No piece currently selected
+                    else:
+                        piece = game_state.get_piece_at(clicked_sq)
+                        if piece is not None and piece.color == game_state.turn:
+                            selected_square = clicked_sq
+                            legal_destinations = game_state.get_legal_destinations(clicked_sq)
+                            dragging = True
+                            drag_start_square = clicked_sq
+
+            # ---------------------------------------------------------
+            # MOUSE BUTTON UP
+            # ---------------------------------------------------------
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                if dragging and drag_start_square is not None:
+                    target_sq = pixel_to_square(
+                        event.pos,
+                        flipped=flipped,
+                        board_x=BOARD_X,
+                        board_y=BOARD_Y,
+                        square_size=SQUARE_SIZE,
+                    )
+
+                    # If released on a different square (drag-and-drop move attempt)
+                    if target_sq is not None and target_sq != drag_start_square:
+                        if target_sq in legal_destinations:
+                            if game_state.needs_promotion(drag_start_square, target_sq):
+                                pending_promotion = (drag_start_square, target_sq)
+                            else:
+                                result = game_state.make_move(drag_start_square, target_sq)
+                                if result.success:
+                                    play_move_sound(result)
+                                selected_square = None
+                                legal_destinations = []
+                        else:
+                            # Illegal drop
+                            Assets.play_sound("invalid")
+                            selected_square = None
+                            legal_destinations = []
+
+                    # If released on same square, preserve selection for click-to-move
+                    dragging = False
+                    drag_start_square = None
+
+            # ---------------------------------------------------------
+            # KEYBOARD SHORTCUTS
+            # ---------------------------------------------------------
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    game_state.reset()
+                    selected_square = None
+                    legal_destinations = []
+                    dragging = False
+                    drag_start_square = None
+                    pending_promotion = None
+                    Assets.play_sound("game_start")
+
+                elif event.key == pygame.K_f:
+                    flipped = not flipped
+
+                elif event.key == pygame.K_RIGHT:
+                    change_theme(1)
+
+                elif event.key == pygame.K_LEFT:
+                    change_theme(-1)
+
+                elif event.key == pygame.K_m:
+                    Assets.toggle_sound()
+
+                elif event.key == pygame.K_ESCAPE:
+                    pending_promotion = None
+                    selected_square = None
+                    legal_destinations = []
+                    dragging = False
+                    drag_start_square = None
+
+        # -------------------------------------------------------------
+        # DRAWING ROUTINE
+        # -------------------------------------------------------------
+        screen.fill(BG_COLOR)
+
+        # 1. Chessboard background
+        renderer.draw_board(board_image)
+
+        # 2. Square highlights (legal moves, last move, king in check, selection)
+        renderer.draw_highlights(
+            game_state=game_state,
+            selected_square=selected_square,
+            legal_destinations=legal_destinations,
+            flipped=flipped,
         )
 
-        if moved:
-            last_move = (source, target)
-
-            if target_piece is not None:
-                Assets.play_sound("capture")
-            else:
-                Assets.play_sound("move")
-
-        else:
-            Assets.play_sound("invalid")
-
-    # Reset drag state even when the move fails.
-    selected_piece = None
-    selected_pos = None
-    dragging = False
-
-
-# ============================================================
-# 9. MAIN GAME LOOP
-# ============================================================
-
-running = True
-
-while running:
-
-    mouse_pos = pygame.mouse.get_pos()
-
-    for event in pygame.event.get():
-
-        if event.type == pygame.QUIT:
-            running = False
-
-        elif (
-            event.type == pygame.MOUSEBUTTONDOWN
-            and event.button == 1
-        ):
-            handle_mouse_down(event.pos)
-
-        elif (
-            event.type == pygame.MOUSEBUTTONUP
-            and event.button == 1
-        ):
-            handle_mouse_up(event.pos)
-
-        elif event.type == pygame.KEYDOWN:
-
-            # Optional keyboard theme switching.
-            if event.key == pygame.K_RIGHT:
-                change_asset_pack(1)
-
-            elif event.key == pygame.K_LEFT:
-                change_asset_pack(-1)
-
-    # Draw the complete frame.
-    screen.fill(BACKGROUND_COLOR)
-
-    draw_board()
-    draw_pieces()
-    draw_panel(mouse_pos)
-
-    # Draw the dragged piece at the cursor.
-    if dragging and selected_piece is not None:
-
-        image = piece_images[selected_piece]
-
-        rect = image.get_rect(
-            center=pygame.mouse.get_pos()
+        # 3. Chess pieces
+        dragging_sq = drag_start_square if dragging else None
+        renderer.draw_pieces(
+            game_state=game_state,
+            piece_images=piece_images,
+            dragging_square=dragging_sq,
+            flipped=flipped,
         )
 
-        screen.blit(image, rect)
+        # 4. Floating dragged piece following mouse cursor
+        if dragging and selected_square is not None:
+            piece = game_state.get_piece_at(selected_square)
+            code = piece_to_code(piece)
+            if code:
+                renderer.draw_dragged_piece(piece_images, code, mouse_pos)
 
-    pygame.display.flip()
-    clock.tick(FPS)
+        # 5. Interactive Pawn Promotion Dialog
+        if pending_promotion is not None:
+            _, promo_sq = pending_promotion
+            renderer.draw_promotion_modal(
+                color=game_state.turn,
+                to_square=promo_sq,
+                piece_images=piece_images,
+                mouse_pos=mouse_pos,
+                flipped=flipped,
+            )
+
+        # 6. Right-side Panel
+        renderer.draw_panel(
+            game_state=game_state,
+            active_pack_name=Assets.get_active_asset_pack(),
+            active_pack_index=active_pack_index,
+            total_packs=len(available_packs),
+            mouse_pos=mouse_pos,
+            sound_enabled=Assets.is_sound_enabled(),
+            flipped=flipped,
+        )
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+    pygame.quit()
 
 
-pygame.quit()
+if __name__ == "__main__":
+    main()

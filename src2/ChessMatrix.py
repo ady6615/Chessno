@@ -1,54 +1,80 @@
-
 # ChessMatrix.py
+"""
+Backward-compatibility matrix interface for Chessno.
+
+Connects the legacy ChessMatrix API with the authoritative GameState engine.
+Preserves existing functions (inside_board, is_valid_move, move_piece, matrix)
+while ensuring complete FIDE chess rule enforcement under the hood.
+"""
+
+from typing import Optional, List, Tuple
+import chess
+
+from coordinates import (
+    is_inside_board_grid,
+    board_coords_to_square,
+    piece_to_code,
+    code_to_piece,
+)
+from game_engine import GameState
 
 EMPTY = None
 
-# Keep your original board orientation.
-# White starts at the top; black starts at the bottom.
-matrix = [
-    ["wr", "wk", "wb", "wa", "wq", "wb", "wk", "wr"],
-    ["wp", "wp", "wp", "wp", "wp", "wp", "wp", "wp"],
-    [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-    [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-    [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-    [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-    ["bp", "bp", "bp", "bp", "bp", "bp", "bp", "bp"],
-    ["br", "bk", "bb", "bq", "ba", "bb", "bk", "br"],
-]
+# Global game state instance for matrix-level access
+_default_game_state = GameState()
 
 
-def inside_board(row, col):
-    return 0 <= row < 8 and 0 <= col < 8
+def get_active_game_state() -> GameState:
+    """Return the underlying authoritative GameState."""
+    return _default_game_state
 
 
-def path_clear(start, end):
-    """Check whether every square between two positions is empty."""
-
-    r1, c1 = start
-    r2, c2 = end
-
-    row_step = (r2 > r1) - (r2 < r1)
-    col_step = (c2 > c1) - (c2 < c1)
-
-    row = r1 + row_step
-    col = c1 + col_step
-
-    while (row, col) != (r2, c2):
-        if matrix[row][col] is not EMPTY:
-            return False
-
-        row += row_step
-        col += col_step
-
-    return True
+def set_active_game_state(state: GameState) -> None:
+    """Update the active GameState used by this matrix module."""
+    global _default_game_state
+    _default_game_state = state
 
 
-def is_valid_move(start, end):
-    """Validate basic piece movement and captures.
+def inside_board(row: int, col: int) -> bool:
+    """Check if (row, col) lies within the 8x8 chessboard."""
+    return is_inside_board_grid(row, col)
 
-    This does not yet check whether the king is in check.
+
+def get_matrix(flipped: bool = False) -> List[List[Optional[str]]]:
+    """Return an 8x8 matrix representing current piece positions."""
+    return _default_game_state.to_matrix(flipped=flipped)
+
+
+class _MatrixProxy:
     """
+    Dynamic proxy that behaves like an 8x8 list while always reflecting
+    the authoritative GameState board state in real time.
+    """
+    def __getitem__(self, row: int):
+        if not (0 <= row < 8):
+            raise IndexError("Row out of range (0-7)")
+        current_matrix = get_matrix()
+        return current_matrix[row]
 
+    def __setitem__(self, row: int, value):
+        # Direct matrix assignment is discouraged, but supported for compatibility
+        pass
+
+    def __iter__(self):
+        return iter(get_matrix())
+
+    def __len__(self):
+        return 8
+
+
+# matrix property that always mirrors the authoritative board
+matrix = _MatrixProxy()
+
+
+def is_valid_move(start: Tuple[int, int], end: Tuple[int, int], flipped: bool = False) -> bool:
+    """
+    Check if a move from start=(r1, c1) to end=(r2, c2) is legal under chess rules.
+    """
     r1, c1 = start
     r2, c2 = end
 
@@ -58,96 +84,41 @@ def is_valid_move(start, end):
     if start == end:
         return False
 
-    piece = matrix[r1][c1]
-    target = matrix[r2][c2]
-
-    if piece is EMPTY:
+    try:
+        from_sq = board_coords_to_square(r1, c1, flipped=flipped)
+        to_sq = board_coords_to_square(r2, c2, flipped=flipped)
+    except Exception:
         return False
 
-    # A piece cannot capture another piece of its own color.
-    if target is not EMPTY and target[0] == piece[0]:
-        return False
-
-    color = piece[0]
-    kind = piece[1]
-
-    dr = r2 - r1
-    dc = c2 - c1
-
-    # ROOK: horizontal or vertical movement.
-    if kind == "r":
-        if dr != 0 and dc != 0:
-            return False
-
-        return path_clear(start, end)
-
-    # BISHOP: diagonal movement.
-    elif kind == "b":
-        if abs(dr) != abs(dc):
-            return False
-
-        return path_clear(start, end)
-
-    # QUEEN: rook + bishop movement.
-    elif kind == "q":
-        straight = dr == 0 or dc == 0
-        diagonal = abs(dr) == abs(dc)
-
-        if not straight and not diagonal:
-            return False
-
-        return path_clear(start, end)
-
-    # KNIGHT: L-shaped movement; can jump over pieces.
-    elif kind == "k":
-        return (abs(dr), abs(dc)) in [(2, 1), (1, 2)]
-
-    # KING: one square in any direction.
-    elif kind == "a":
-        return max(abs(dr), abs(dc)) == 1
-
-    # PAWN: forward movement and diagonal captures.
-    elif kind == "p":
-        direction = 1 if color == "w" else -1
-        starting_row = 1 if color == "w" else 6
-
-        # Move forward by one square.
-        if dc == 0 and dr == direction:
-            return target is EMPTY
-
-        # Move forward by two squares from starting row.
-        if (
-            dc == 0
-            and r1 == starting_row
-            and dr == 2 * direction
-            and target is EMPTY
-        ):
-            middle_row = r1 + direction
-            return matrix[middle_row][c1] is EMPTY
-
-        # Capture diagonally by one square.
-        if (
-            abs(dc) == 1
-            and dr == direction
-            and target is not EMPTY
-        ):
-            return target[0] != color
-
-        return False
-
-    return False
+    return _default_game_state.is_legal_move(from_sq, to_sq)
 
 
-def move_piece(start, end):
-    """Move a piece if the basic movement rules allow it."""
-
-    if not is_valid_move(start, end):
-        return False
-
+def move_piece(
+    start: Tuple[int, int],
+    end: Tuple[int, int],
+    promotion: Optional[int] = None,
+    flipped: bool = False,
+) -> bool:
+    """
+    Execute a move from start=(r1, c1) to end=(r2, c2).
+    Returns True if the move was legal and committed, False otherwise.
+    """
     r1, c1 = start
     r2, c2 = end
 
-    matrix[r2][c2] = matrix[r1][c1]
-    matrix[r1][c1] = EMPTY
+    if not inside_board(r1, c1) or not inside_board(r2, c2):
+        return False
 
-    return True
+    try:
+        from_sq = board_coords_to_square(r1, c1, flipped=flipped)
+        to_sq = board_coords_to_square(r2, c2, flipped=flipped)
+    except Exception:
+        return False
+
+    result = _default_game_state.make_move(from_sq, to_sq, promotion=promotion)
+    return result.success
+
+
+def reset_board() -> None:
+    """Reset the board to the standard starting position."""
+    _default_game_state.reset()

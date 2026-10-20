@@ -1,1 +1,3 @@
 sprites_raw.ai
+__pycache__/
+*.pyc
