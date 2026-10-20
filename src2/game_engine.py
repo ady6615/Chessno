@@ -129,7 +129,9 @@ class GameState:
         self.mode.on_init(self)
 
     def is_game_over(self) -> bool:
-        """True if game is over by checkmate or any draw condition."""
+        """True if game is over by checkmate, any draw condition, or mod condition."""
+        if hasattr(self.mode, "is_game_over") and self.mode.is_game_over(self):
+            return True
         if hasattr(self.mode, "moves_remaining") and self.mode.moves_remaining > 0:
             return False
         return (
@@ -142,12 +144,20 @@ class GameState:
 
     def winner(self) -> Optional[chess.Color]:
         """Returns chess.WHITE, chess.BLACK, or None if drawn or ongoing."""
+        if hasattr(self.mode, "winner"):
+            mod_winner = self.mode.winner(self)
+            if mod_winner is not None:
+                return mod_winner
         if self.board.is_checkmate():
             return chess.BLACK if self.board.turn == chess.WHITE else chess.WHITE
         return None
 
     def game_over_reason(self) -> Optional[str]:
         """Human-readable string explaining why the game is over, or None."""
+        if hasattr(self.mode, "game_over_reason"):
+            mod_reason = self.mode.game_over_reason(self)
+            if mod_reason is not None:
+                return mod_reason
         if not self.is_game_over():
             return None
 

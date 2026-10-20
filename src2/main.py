@@ -37,6 +37,7 @@ from coordinates import (
 )
 from game_engine import GameState, ClassicChessMode
 from uno_engine import ChessUnoMode, UnoTurnPhase
+from snail_engine import ImmortalSnailMode
 from renderer import ChessRenderer, BG_COLOR
 
 # Window dimensions
@@ -112,6 +113,11 @@ def main() -> None:
             uno_mode = ChessUnoMode()
             game_state = GameState(mode=uno_mode)
             flipped = uno_mode.board_reversed
+        elif mode_name == "Immortal Snail":
+            current_mode_name = "Immortal Snail"
+            snail_mode = ImmortalSnailMode()
+            game_state = GameState(mode=snail_mode)
+            flipped = False
         else:
             current_mode_name = "Classic"
             classic_mode = ClassicChessMode()
@@ -162,11 +168,13 @@ def main() -> None:
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect = renderer.get_mode_selector_rects()
                     if c_rect.collidepoint(event.pos):
                         switch_to_mode("Classic")
                     elif u_rect.collidepoint(event.pos):
                         switch_to_mode("Chess + UNO")
+                    elif s_rect.collidepoint(event.pos):
+                        switch_to_mode("Immortal Snail")
                     else:
                         # Clicked outside cards: close modal
                         mode_selector_open = False
@@ -235,6 +243,15 @@ def main() -> None:
                         or renderer.buttons.deck_card.collidepoint(event.pos)
                     ):
                         game_state.mode.trigger_draw(game_state, animate=True)
+                        continue
+
+                # Immortal Snail: Target King selection before game start
+                if isinstance(game_state.mode, ImmortalSnailMode) and game_state.mode.total_legal_moves == 0:
+                    if renderer.buttons.target_white.collidepoint(event.pos):
+                        game_state.mode.set_target_color(chess.WHITE)
+                        continue
+                    elif renderer.buttons.target_black.collidepoint(event.pos):
+                        game_state.mode.set_target_color(chess.BLACK)
                         continue
 
                 # 4. Board Square Click
@@ -356,6 +373,9 @@ def main() -> None:
                 elif event.key == pygame.K_2 and mode_selector_open:
                     switch_to_mode("Chess + UNO")
 
+                elif event.key == pygame.K_3 and mode_selector_open:
+                    switch_to_mode("Immortal Snail")
+
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
                         mode_selector_open = False
@@ -390,6 +410,9 @@ def main() -> None:
             dragging_square=dragging_sq,
             flipped=flipped,
         )
+
+        # 3b. Immortal Snail Entity Overlay
+        renderer.draw_snail(game_state, flipped=flipped)
 
         # 4. Floating dragged piece following mouse cursor
         if dragging and selected_square is not None:

@@ -27,6 +27,7 @@ from coordinates import (
     piece_to_code,
 )
 from game_engine import GameState
+from snail_engine import ImmortalSnailMode
 
 # Theme and UI Color Palette
 BG_COLOR = (26, 28, 34)
@@ -76,6 +77,11 @@ class UIButtons:
         self.draw_card = pygame.Rect(panel_x + 14, 664, panel_width - 28, 40)
         self.deck_card = pygame.Rect(panel_x + (panel_width - 105) // 2, 506, 105, 145)
 
+        # Immortal Snail Target Selection Buttons
+        btn_w = (panel_width - 34) // 2
+        self.target_white = pygame.Rect(panel_x + 14, 542, btn_w, 28)
+        self.target_black = pygame.Rect(panel_x + 14 + btn_w + 6, 542, btn_w, 28)
+
 
 class ChessRenderer:
     """Encapsulates all Pygame drawing logic for the chess interface."""
@@ -118,6 +124,7 @@ class ChessRenderer:
 
         self._surf_check = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
         self._surf_check.fill((235, 60, 60, 110))
+        self._snail_sprite_cache: Dict[int, pygame.Surface] = {}
 
     # -------------------------------------------------------------------------
     # Board & Square Highlights
@@ -250,6 +257,135 @@ class ChessRenderer:
         self.screen.blit(image, rect)
 
     # -------------------------------------------------------------------------
+    # Immortal Snail Graphics & Entity Overlay
+    # -------------------------------------------------------------------------
+
+    def get_snail_sprite(self, size: int = 76) -> pygame.Surface:
+        """Create and cache high-res distinctive Immortal Snail sprite."""
+        if size in self._snail_sprite_cache:
+            return self._snail_sprite_cache[size]
+
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+
+        # 1. Slime footprint glow
+        slime_w = int(size * 0.88)
+        slime_h = int(size * 0.22)
+        pygame.draw.ellipse(surf, (150, 235, 75, 90), (int(size * 0.06), size - slime_h - 2, slime_w, slime_h))
+
+        # 2. Body foot / slug base
+        foot_w = int(size * 0.78)
+        foot_h = int(size * 0.24)
+        foot_rect = pygame.Rect(int(size * 0.12), size - foot_h - 4, foot_w, foot_h)
+        pygame.draw.ellipse(surf, (160, 180, 105), foot_rect)
+        pygame.draw.ellipse(surf, (100, 120, 55), foot_rect, 2)
+
+        # 3. Head & Eyestalks
+        head_cx = int(size * 0.76)
+        head_cy = int(size * 0.65)
+        head_r = int(size * 0.15)
+        pygame.draw.circle(surf, (165, 185, 110), (head_cx, head_cy), head_r)
+        pygame.draw.circle(surf, (100, 120, 55), (head_cx, head_cy), head_r, 2)
+
+        stalk1_tip = (head_cx - 4, head_cy - int(size * 0.26))
+        stalk2_tip = (head_cx + 7, head_cy - int(size * 0.23))
+        pygame.draw.line(surf, (100, 120, 55), (head_cx - 4, head_cy - 4), stalk1_tip, 3)
+        pygame.draw.line(surf, (100, 120, 55), (head_cx + 4, head_cy - 4), stalk2_tip, 3)
+
+        # Shiny eyes with white highlights
+        for tip in (stalk1_tip, stalk2_tip):
+            pygame.draw.circle(surf, (255, 255, 255), tip, 4)
+            pygame.draw.circle(surf, (25, 25, 25), (tip[0] + 1, tip[1]), 2)
+
+        # 4. Stylized Golden Amber Shell
+        shell_center = (int(size * 0.44), int(size * 0.44))
+        shell_r = int(size * 0.38)
+        pygame.draw.circle(surf, (215, 135, 40), shell_center, shell_r)
+        pygame.draw.circle(surf, (115, 60, 15), shell_center, shell_r, 2)
+
+        # Concentric spiral whorls
+        for factor, col in [(0.78, (245, 175, 60)), (0.55, (190, 115, 30)), (0.32, (255, 205, 80))]:
+            r = int(shell_r * factor)
+            if r > 4:
+                pygame.draw.circle(surf, col, shell_center, r, 2)
+        pygame.draw.circle(surf, (255, 215, 110), shell_center, max(3, int(shell_r * 0.16)))
+
+        # Specular gloss highlight
+        hl_w = int(shell_r * 0.95)
+        hl_h = int(shell_r * 0.48)
+        pygame.draw.ellipse(surf, (255, 255, 255, 115), (shell_center[0] - shell_r + 4, shell_center[1] - shell_r + 4, hl_w, hl_h))
+
+        self._snail_sprite_cache[size] = surf
+        return surf
+
+    def draw_snail(self, game_state: GameState, flipped: bool = False) -> None:
+        """Render the Immortal Snail, its slime trail, and the target king crosshair."""
+        if not hasattr(game_state.mode, "is_on_board"):
+            return
+        mode = game_state.mode
+
+        # 1. Slime Trail on traversed squares
+        if hasattr(mode, "trail") and mode.trail:
+            for (f, r) in mode.trail:
+                if 0 <= f <= 7 and 0 <= r <= 7:
+                    t_sq = chess.square(f, r)
+                    t_rect = square_to_rect(
+                        t_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+                    )
+                    slime_surf = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+                    pygame.draw.circle(slime_surf, (140, 230, 80, 45), (self.square_size // 2, self.square_size // 2), 16)
+                    pygame.draw.circle(slime_surf, (180, 255, 100, 70), (self.square_size // 2, self.square_size // 2), 8)
+                    self.screen.blit(slime_surf, t_rect)
+
+        # 2. Target King Pursued Reticle
+        target_sq = game_state.king_square(mode.target_color)
+        if target_sq is not None:
+            k_rect = square_to_rect(
+                target_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+            )
+            pulse = abs(math.sin(pygame.time.get_ticks() / 300))
+            k_glow = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+            glow_alpha = int(75 + 85 * pulse)
+            pygame.draw.rect(k_glow, (240, 80, 80, glow_alpha), (0, 0, self.square_size, self.square_size), width=3, border_radius=4)
+            # Corner brackets
+            b_len = 12
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, 0), (b_len, 0), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, 0), (0, b_len), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, 0), (self.square_size - 1 - b_len, 0), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, 0), (self.square_size - 1, b_len), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, self.square_size - 1), (b_len, self.square_size - 1), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (0, self.square_size - 1), (0, self.square_size - 1 - b_len), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, self.square_size - 1), (self.square_size - 1 - b_len, self.square_size - 1), 2)
+            pygame.draw.line(k_glow, (255, 110, 110, glow_alpha), (self.square_size - 1, self.square_size - 1), (self.square_size - 1, self.square_size - 1 - b_len), 2)
+            self.screen.blit(k_glow, k_rect)
+
+        # 3. Draw Snail Entity
+        snail_sprite = self.get_snail_sprite(size=int(self.square_size * 0.76))
+        if mode.is_on_board and mode.square is not None:
+            s_rect = square_to_rect(
+                mode.square, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+            )
+            spr_rect = snail_sprite.get_rect(center=s_rect.center)
+            self.screen.blit(snail_sprite, spr_rect)
+        else:
+            # Off-board spawn point
+            f, r = mode.current_pos
+            col = f if not flipped else 7 - f
+            row = (7 - r) if not flipped else r
+            cx = self.board_x + col * self.square_size + self.square_size // 2
+            cy = self.board_y + row * self.square_size + self.square_size // 2
+
+            # Off-board badge
+            badge_rect = pygame.Rect(0, 0, 96, 22)
+            badge_rect.center = (cx, cy - 28)
+            pygame.draw.rect(self.screen, (40, 48, 36), badge_rect, border_radius=6)
+            pygame.draw.rect(self.screen, (140, 220, 80), badge_rect, width=1, border_radius=6)
+            entry_lbl = self.font_micro.render("SNAIL ENTRY", True, (160, 240, 90))
+            self.screen.blit(entry_lbl, entry_lbl.get_rect(center=badge_rect.center))
+
+            spr_rect = snail_sprite.get_rect(center=(cx, cy))
+            self.screen.blit(snail_sprite, spr_rect)
+
+    # -------------------------------------------------------------------------
     # Promotion Modal
     # -------------------------------------------------------------------------
 
@@ -343,30 +479,31 @@ class ChessRenderer:
     # Game Mode Selection Start Menu / Modal
     # -------------------------------------------------------------------------
 
-    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect]:
-        """Return clickable rectangles for (Classic_Chess_card, Chess_UNO_card)."""
+    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect]:
+        """Return clickable rectangles for (Classic_Chess_card, Chess_UNO_card, Immortal_Snail_card)."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
-        card_w, card_h = 280, 260
-        gap = 30
-        total_w = card_w * 2 + gap
+        card_w, card_h = 264, 276
+        gap = 20
+        total_w = card_w * 3 + gap * 2
         start_x = (screen_w - total_w) // 2
-        card_y = (screen_h - card_h) // 2 + 30
+        card_y = (screen_h - card_h) // 2 + 25
 
         rect_classic = pygame.Rect(start_x, card_y, card_w, card_h)
         rect_uno = pygame.Rect(start_x + card_w + gap, card_y, card_w, card_h)
-        return rect_classic, rect_uno
+        rect_snail = pygame.Rect(start_x + (card_w + gap) * 2, card_y, card_w, card_h)
+        return rect_classic, rect_uno, rect_snail
 
-    def draw_mode_selector_modal(self, mouse_pos: Tuple[int, int]) -> Tuple[pygame.Rect, pygame.Rect]:
+    def draw_mode_selector_modal(self, mouse_pos: Tuple[int, int]) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect]:
         """
         Draw a modal start menu allowing the player to select the game mode.
-        Returns the two card Rects for event collision checking.
+        Returns the three card Rects for event collision checking.
         """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
 
         overlay = pygame.Surface((screen_w, screen_h), pygame.SRCALPHA)
-        overlay.fill((12, 14, 18, 220))
+        overlay.fill((12, 14, 18, 225))
         self.screen.blit(overlay, (0, 0))
 
         title_y = screen_h // 2 - 200
@@ -374,11 +511,11 @@ class ChessRenderer:
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Choose how you want to play Chessno", True, TEXT_SECONDARY)
+        sub_surf = self.font_normal.render("Choose your Chessno game mode or press [1], [2], [3]", True, TEXT_SECONDARY)
         s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 36))
         self.screen.blit(sub_surf, s_rect)
 
-        rect_classic, rect_uno = self.get_mode_selector_rects()
+        rect_classic, rect_uno, rect_snail = self.get_mode_selector_rects()
 
         # 1. Classic Chess Card
         is_hov_c = rect_classic.collidepoint(mouse_pos)
@@ -387,26 +524,26 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, c_bg, rect_classic, border_radius=12)
         pygame.draw.rect(self.screen, c_border, rect_classic, width=2 if is_hov_c else 1, border_radius=12)
 
-        c_title = self.font_header.render("Classic Chess", True, TEXT_PRIMARY)
-        self.screen.blit(c_title, (rect_classic.x + 20, rect_classic.y + 24))
+        c_title = self.font_header.render("1. Classic Chess", True, TEXT_PRIMARY)
+        self.screen.blit(c_title, (rect_classic.x + 18, rect_classic.y + 20))
         c_badge = self.font_micro.render("STANDARD FIDE RULES", True, ACCENT_COLOR)
-        self.screen.blit(c_badge, (rect_classic.x + 20, rect_classic.y + 54))
+        self.screen.blit(c_badge, (rect_classic.x + 18, rect_classic.y + 48))
 
         c_lines = [
             "• Pure traditional chess",
             "• 2-Player alternating turns",
             "• Castling & En Passant",
-            "• Pawn Promotion choices",
-            "• Checkmate & Draw detection",
+            "• Full promotion selector",
+            "• Checkmate & Draw rules",
         ]
         for idx, line in enumerate(c_lines):
             t = self.font_small.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(t, (rect_classic.x + 20, rect_classic.y + 90 + idx * 22))
+            self.screen.blit(t, (rect_classic.x + 18, rect_classic.y + 78 + idx * 21))
 
-        btn_c_rect = pygame.Rect(rect_classic.x + 20, rect_classic.bottom - 46, rect_classic.width - 40, 32)
+        btn_c_rect = pygame.Rect(rect_classic.x + 18, rect_classic.bottom - 44, rect_classic.width - 36, 30)
         btn_c_color = ACCENT_HOVER if is_hov_c else ACCENT_COLOR
         pygame.draw.rect(self.screen, btn_c_color, btn_c_rect, border_radius=6)
-        btn_c_lbl = self.font_subtitle.render("PLAY CLASSIC", True, (15, 35, 25))
+        btn_c_lbl = self.font_subtitle.render("PLAY CLASSIC [1]", True, (15, 35, 25))
         self.screen.blit(btn_c_lbl, btn_c_lbl.get_rect(center=btn_c_rect.center))
 
         # 2. Chess + UNO Card
@@ -416,29 +553,58 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, u_bg, rect_uno, border_radius=12)
         pygame.draw.rect(self.screen, u_border, rect_uno, width=2 if is_hov_u else 1, border_radius=12)
 
-        u_title = self.font_header.render("Chess + UNO", True, GOLD_COLOR)
-        self.screen.blit(u_title, (rect_uno.x + 20, rect_uno.y + 24))
-        u_badge = self.font_micro.render("MODDED CHESS EXPERIENCE", True, (240, 160, 60))
-        self.screen.blit(u_badge, (rect_uno.x + 20, rect_uno.y + 54))
+        u_title = self.font_header.render("2. Chess + UNO", True, GOLD_COLOR)
+        self.screen.blit(u_title, (rect_uno.x + 18, rect_uno.y + 20))
+        u_badge = self.font_micro.render("CARD POWER-UPS & FLIPS", True, (240, 160, 60))
+        self.screen.blit(u_badge, (rect_uno.x + 18, rect_uno.y + 48))
 
         u_lines = [
-            "• Draw an UNO card each turn!",
-            "• Number cards: 1, 2, or 3 moves",
-            "• Reverse: Flips board 180°",
-            "• Skip: Skips opponent turn",
+            "• Animated card shuffle & draw",
+            "• 1, 2, or 3 moves per turn",
+            "• Reverse: Rotates board 180°",
+            "• Skip: Opponent loses turn",
             "• Auto-reshuffling deck",
         ]
         for idx, line in enumerate(u_lines):
             t = self.font_small.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(t, (rect_uno.x + 20, rect_uno.y + 90 + idx * 22))
+            self.screen.blit(t, (rect_uno.x + 18, rect_uno.y + 78 + idx * 21))
 
-        btn_u_rect = pygame.Rect(rect_uno.x + 20, rect_uno.bottom - 46, rect_uno.width - 40, 32)
+        btn_u_rect = pygame.Rect(rect_uno.x + 18, rect_uno.bottom - 44, rect_uno.width - 36, 30)
         btn_u_color = (255, 215, 90) if is_hov_u else GOLD_COLOR
         pygame.draw.rect(self.screen, btn_u_color, btn_u_rect, border_radius=6)
-        btn_u_lbl = self.font_subtitle.render("PLAY CHESS + UNO", True, (35, 30, 10))
+        btn_u_lbl = self.font_subtitle.render("PLAY UNO [2]", True, (35, 30, 10))
         self.screen.blit(btn_u_lbl, btn_u_lbl.get_rect(center=btn_u_rect.center))
 
-        return rect_classic, rect_uno
+        # 3. Immortal Snail Card
+        is_hov_s = rect_snail.collidepoint(mouse_pos)
+        s_bg = (52, 57, 70) if is_hov_s else (40, 44, 54)
+        s_border = (140, 230, 90) if is_hov_s else PANEL_BORDER
+        pygame.draw.rect(self.screen, s_bg, rect_snail, border_radius=12)
+        pygame.draw.rect(self.screen, s_border, rect_snail, width=2 if is_hov_s else 1, border_radius=12)
+
+        s_title = self.font_header.render("3. Immortal Snail", True, (140, 230, 90))
+        self.screen.blit(s_title, (rect_snail.x + 18, rect_snail.y + 20))
+        s_badge = self.font_micro.render("RELENTLESS PURSUIT HAZARD", True, (160, 240, 100))
+        self.screen.blit(s_badge, (rect_snail.x + 18, rect_snail.y + 48))
+
+        s_lines = [
+            "• Moves 1 tile every 3 moves",
+            "• Relentlessly hunts target king",
+            "• Crushes any piece in its route",
+            "• Target king caught = game over!",
+            "• Immune to capture or blocks",
+        ]
+        for idx, line in enumerate(s_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_snail.x + 18, rect_snail.y + 78 + idx * 21))
+
+        btn_s_rect = pygame.Rect(rect_snail.x + 18, rect_snail.bottom - 44, rect_snail.width - 36, 30)
+        btn_s_color = (165, 245, 110) if is_hov_s else (135, 220, 85)
+        pygame.draw.rect(self.screen, btn_s_color, btn_s_rect, border_radius=6)
+        btn_s_lbl = self.font_subtitle.render("PLAY SNAIL [3]", True, (15, 35, 15))
+        self.screen.blit(btn_s_lbl, btn_s_lbl.get_rect(center=btn_s_rect.center))
+
+        return rect_classic, rect_uno, rect_snail
 
     # -------------------------------------------------------------------------
     # UNO Card Visual Graphics & Animations
@@ -588,8 +754,17 @@ class ChessRenderer:
         self.screen.blit(title, (px, 32))
 
         is_uno_mode = (game_state.mode.name == "Chess + UNO")
-        mode_str = "MODE: CHESS + UNO" if is_uno_mode else "MODE: CLASSIC"
-        mode_color = GOLD_COLOR if is_uno_mode else ACCENT_COLOR
+        is_snail_mode = isinstance(game_state.mode, ImmortalSnailMode)
+        if is_snail_mode:
+            mode_str = "MODE: IMMORTAL SNAIL"
+            mode_color = (140, 230, 90)
+        elif is_uno_mode:
+            mode_str = "MODE: CHESS + UNO"
+            mode_color = GOLD_COLOR
+        else:
+            mode_str = "MODE: CLASSIC"
+            mode_color = ACCENT_COLOR
+
         mode_badge = self.font_subtitle.render(mode_str, True, mode_color)
         self.screen.blit(mode_badge, (px, 70))
 
@@ -631,6 +806,11 @@ class ChessRenderer:
             badge_color = GOLD_COLOR
             badge_bg = (60, 52, 25)
             status_text = f"Multi-Move: {game_state.mode.moves_remaining} left"
+        elif is_snail_mode:
+            badge_color = (140, 230, 90)
+            badge_bg = (30, 55, 30)
+            step_rem = game_state.mode.moves_until_next_step
+            status_text = f"Snail steps in {step_rem} move{'s' if step_rem > 1 else ''}"
         else:
             badge_color = ACCENT_COLOR
             badge_bg = (25, 55, 40)
@@ -743,6 +923,81 @@ class ChessRenderer:
                         desc_surf = self.font_micro.render(card.description, True, TEXT_MUTED)
                         self.screen.blit(desc_surf, desc_surf.get_rect(center=(px + pw // 2, 716)))
 
+        elif is_snail_mode:
+            mode = game_state.mode
+            mod_title = self.font_subtitle.render("IMMORTAL SNAIL", True, (140, 230, 90))
+            self.screen.blit(mod_title, (px + 14, 508))
+
+            # Target King Selection / Display
+            if mode.total_legal_moves == 0:
+                t_lbl = self.font_micro.render("TARGET KING (CLICK TO CHOOSE):", True, TEXT_MUTED)
+                self.screen.blit(t_lbl, (px + 14, 526))
+
+                w_active = (mode.target_color == chess.WHITE)
+                b_active = (mode.target_color == chess.BLACK)
+                self._draw_button("White King", self.buttons.target_white, mouse_pos, accent=w_active)
+                self._draw_button("Black King", self.buttons.target_black, mouse_pos, accent=b_active)
+            else:
+                t_badge_str = f"TARGET: {mode.target_name.upper()} KING (LOCKED)"
+                t_badge = self.font_subtitle.render(t_badge_str, True, (245, 160, 60))
+                self.screen.blit(t_badge, (px + 14, 532))
+
+            stats_y = 574
+            # 1. Location
+            loc_str = f"Location: {mode.location_name}"
+            loc_surf = self.font_small.render(loc_str, True, TEXT_PRIMARY)
+            self.screen.blit(loc_surf, (px + 14, stats_y))
+
+            # 2. Distance to Target
+            dist = mode.distance_to_target(game_state)
+            dist_str = f"Distance: {dist} tiles away" if dist is not None else "Distance: N/A"
+            dist_surf = self.font_small.render(dist_str, True, TEXT_SECONDARY)
+            self.screen.blit(dist_surf, (px + 14, stats_y + 22))
+
+            # 3. Next step countdown with segmented glowing indicators
+            step_lbl = self.font_small.render("Next step:", True, TEXT_PRIMARY)
+            self.screen.blit(step_lbl, (px + 14, stats_y + 46))
+
+            rem_moves = mode.moves_until_next_step
+            pip_w = 34
+            pip_h = 16
+            pip_start_x = px + 90
+            for p in range(3):
+                pip_rect = pygame.Rect(pip_start_x + p * (pip_w + 6), stats_y + 46, pip_w, pip_h)
+                filled = (p < (3 - rem_moves))
+                if filled:
+                    pygame.draw.rect(self.screen, (140, 220, 80), pip_rect, border_radius=4)
+                else:
+                    pygame.draw.rect(self.screen, (50, 56, 68), pip_rect, border_radius=4)
+                    pygame.draw.rect(self.screen, (75, 82, 98), pip_rect, width=1, border_radius=4)
+
+            step_desc = f"{rem_moves} legal move{'s' if rem_moves > 1 else ''} remaining"
+            desc_surf = self.font_micro.render(step_desc, True, (140, 220, 80) if rem_moves == 1 else TEXT_MUTED)
+            self.screen.blit(desc_surf, (px + 14, stats_y + 68))
+
+            # 4. Crushed pieces or steps taken
+            if mode.crushed_pieces:
+                crush_str = f"Crushed: {len(mode.crushed_pieces)} ({', '.join(mode.crushed_pieces[-4:])})"
+                crush_surf = self.font_micro.render(crush_str, True, (240, 140, 80))
+                self.screen.blit(crush_surf, (px + 14, stats_y + 88))
+            else:
+                steps_str = f"Steps taken: {mode.steps_taken}"
+                steps_surf = self.font_micro.render(steps_str, True, TEXT_MUTED)
+                self.screen.blit(steps_surf, (px + 14, stats_y + 88))
+
+            # Alert or Victory
+            if mode.target_caught:
+                win_rect = pygame.Rect(px + 10, 686, pw - 20, 48)
+                pygame.draw.rect(self.screen, (70, 25, 25), win_rect, border_radius=6)
+                pygame.draw.rect(self.screen, CHECK_COLOR, win_rect, width=2, border_radius=6)
+                w_title = self.font_subtitle.render("TARGET KING CAUGHT!", True, CHECK_COLOR)
+                w_sub = self.font_micro.render(f"{mode.opponent_name} Wins by Snail Pursuit!", True, TEXT_PRIMARY)
+                self.screen.blit(w_title, w_title.get_rect(center=(win_rect.centerx, win_rect.y + 14)))
+                self.screen.blit(w_sub, w_sub.get_rect(center=(win_rect.centerx, win_rect.y + 32)))
+            else:
+                msg_surf = self.font_micro.render(mode.status_message, True, TEXT_SECONDARY)
+                self.screen.blit(msg_surf, (px + 14, 715))
+
         else:
             # Classic mode placeholder
             mod_title = self.font_subtitle.render("MODS & UNO CARDS", True, TEXT_MUTED)
@@ -751,11 +1006,11 @@ class ChessRenderer:
             mod_desc = [
                 "Currently in Classic Chess.",
                 "Click 'Mode' at the top to",
-                "switch to Chess + UNO!",
+                "switch to UNO or Snail mode!",
                 "",
-                "Upcoming Mods:",
+                "Available Modes:",
+                "- Chess + UNO Powerups",
                 "- Immortal Snail Hazard",
-                "- Online Multiplayer",
             ]
             for idx, line in enumerate(mod_desc):
                 txt = self.font_small.render(line, True, TEXT_SECONDARY)
