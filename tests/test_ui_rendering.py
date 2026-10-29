@@ -28,6 +28,7 @@ import chess
 from game_engine import GameState, ClassicChessMode
 from uno_engine import ChessUnoMode
 from snail_engine import ImmortalSnailMode
+from queen_pawn_engine import QueenPawnMode
 from renderer import ChessRenderer
 import Assets
 
@@ -99,6 +100,23 @@ class TestUIRendering(unittest.TestCase):
             flipped=False,
             piece_images=self.piece_images,
         )
+
+    def test_queen_pawn_mode_panel_rendering(self):
+        state = GameState(mode=QueenPawnMode())
+        self.renderer.draw_panel(
+            game_state=state,
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            mouse_pos=(950, 500),
+            sound_enabled=True,
+            flipped=False,
+            piece_images=self.piece_images,
+        )
+
+    def test_mode_selector_modal_rendering(self):
+        rects = self.renderer.draw_mode_selector_modal(mouse_pos=(600, 300))
+        self.assertEqual(len(rects), 4)
 
 
 if __name__ == "__main__":

@@ -121,10 +121,16 @@ class GameState:
     def king_square(self, color: Optional[chess.Color] = None) -> Optional[chess.Square]:
         """Return the square of the king for the given color (default: current player's king)."""
         target_color = self.board.turn if color is None else color
+        if hasattr(self.mode, "royal_square"):
+            mod_sq = self.mode.royal_square(self, target_color)
+            if mod_sq is not None:
+                return mod_sq
         return self.board.king(target_color)
 
     def is_in_check(self) -> bool:
-        """True if the player whose turn it is is currently in check."""
+        """True if the player whose turn it is is currently in check or under threat."""
+        if hasattr(self.mode, "is_in_check"):
+            return self.mode.is_in_check(self)
         return self.board.is_check()
 
     def set_mode(self, mode: GameMode) -> None:
@@ -195,6 +201,10 @@ class GameState:
         """Concise one-line summary of current game state."""
         if self.is_game_over():
             return self.game_over_reason() or "Game Over"
+        if hasattr(self.mode, "get_status_message"):
+            msg = self.mode.get_status_message(self)
+            if msg:
+                return msg
         if self.is_in_check():
             return f"{self.turn_name} is in Check!"
         return f"{self.turn_name}'s Turn"

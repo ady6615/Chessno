@@ -38,6 +38,7 @@ from coordinates import (
 from game_engine import GameState, ClassicChessMode
 from uno_engine import ChessUnoMode, UnoTurnPhase
 from snail_engine import ImmortalSnailMode
+from queen_pawn_engine import QueenPawnMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 
@@ -48,11 +49,11 @@ PANEL_X = 900
 PANEL_WIDTH = 270
 
 
-def play_move_sound(result) -> None:
+def play_move_sound(result, game_state=None) -> None:
     """Trigger the appropriate sound effect based on the move's outcome."""
-    if result.is_checkmate:
+    if result.is_checkmate or (game_state and game_state.is_game_over()):
         Assets.play_sound("game_over")
-    elif result.is_check:
+    elif result.is_check or (game_state and game_state.is_in_check()):
         Assets.play_sound("check")
     elif result.is_promotion:
         Assets.play_sound("promotion")
@@ -120,6 +121,11 @@ def main() -> None:
             snail_mode = ImmortalSnailMode()
             game_state = GameState(mode=snail_mode)
             flipped = False
+        elif mode_name in ("Queen Pawn", "Queen Pawn Game"):
+            current_mode_name = "Queen Pawn"
+            qp_mode = QueenPawnMode()
+            game_state = GameState(mode=qp_mode)
+            flipped = False
         else:
             current_mode_name = "Classic"
             classic_mode = ClassicChessMode()
@@ -184,7 +190,7 @@ def main() -> None:
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect, s_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect, qp_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     if c_rect.collidepoint(event.pos):
                         switch_to_mode("Classic")
@@ -192,6 +198,8 @@ def main() -> None:
                         switch_to_mode("Chess + UNO")
                     elif s_rect.collidepoint(event.pos):
                         switch_to_mode("Immortal Snail")
+                    elif qp_rect.collidepoint(event.pos):
+                        switch_to_mode("Queen Pawn")
                     else:
                         t_clicked = False
                         for p_rect, sec in p_rects:
@@ -221,7 +229,7 @@ def main() -> None:
                         if btn_rect.collidepoint(event.pos):
                             result = game_state.make_move(from_sq, to_sq, promotion=ptype)
                             if result.success:
-                                play_move_sound(result)
+                                play_move_sound(result, game_state)
                                 timer.switch_turn(game_state.turn)
                             pending_promotion = None
                             selected_square = None
@@ -322,7 +330,7 @@ def main() -> None:
                             else:
                                 result = game_state.make_move(selected_square, clicked_sq)
                                 if result.success:
-                                    play_move_sound(result)
+                                    play_move_sound(result, game_state)
                                     timer.switch_turn(game_state.turn)
                                 selected_square = None
                                 legal_destinations = []
@@ -373,7 +381,7 @@ def main() -> None:
                             else:
                                 result = game_state.make_move(drag_start_square, target_sq)
                                 if result.success:
-                                    play_move_sound(result)
+                                    play_move_sound(result, game_state)
                                     timer.switch_turn(game_state.turn)
                                 selected_square = None
                                 legal_destinations = []
@@ -431,6 +439,9 @@ def main() -> None:
 
                 elif event.key == pygame.K_3 and mode_selector_open:
                     switch_to_mode("Immortal Snail")
+
+                elif event.key == pygame.K_4 and mode_selector_open:
+                    switch_to_mode("Queen Pawn")
 
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
