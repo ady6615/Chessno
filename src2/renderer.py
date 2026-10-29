@@ -28,6 +28,7 @@ from coordinates import (
 )
 from game_engine import GameState
 from snail_engine import ImmortalSnailMode
+from timer import ChessTimer
 
 # Theme and UI Color Palette
 BG_COLOR = (26, 28, 34)
@@ -61,26 +62,32 @@ class UIButtons:
         self.panel_x = panel_x
         self.panel_width = panel_width
         
-        # Mode selector button in header
-        self.mode_select = pygame.Rect(panel_x + panel_width - 100, 64, 100, 26)
+        # Mode and Timer selector buttons in header
+        self.mode_select = pygame.Rect(panel_x + panel_width - 176, 64, 76, 26)
+        self.timer_select = pygame.Rect(panel_x + panel_width - 94, 64, 94, 26)
+
+        # Chess Clocks
+        clock_w = (panel_width - 8) // 2
+        self.white_clock = pygame.Rect(panel_x, 100, clock_w, 46)
+        self.black_clock = pygame.Rect(panel_x + clock_w + 8, 100, clock_w, 46)
 
         # Theme switching buttons
-        self.prev_theme = pygame.Rect(panel_x, 340, 65, 36)
-        self.next_theme = pygame.Rect(panel_x + panel_width - 65, 340, 65, 36)
+        self.prev_theme = pygame.Rect(panel_x, 328, 65, 32)
+        self.next_theme = pygame.Rect(panel_x + panel_width - 65, 328, 65, 32)
         
         # Action buttons
-        self.new_game = pygame.Rect(panel_x, 400, panel_width, 38)
-        self.flip_board = pygame.Rect(panel_x, 448, (panel_width - 10) // 2, 36)
-        self.sound_toggle = pygame.Rect(panel_x + (panel_width - 10) // 2 + 10, 448, (panel_width - 10) // 2, 36)
+        self.new_game = pygame.Rect(panel_x, 372, panel_width, 34)
+        self.flip_board = pygame.Rect(panel_x, 414, (panel_width - 10) // 2, 32)
+        self.sound_toggle = pygame.Rect(panel_x + (panel_width - 10) // 2 + 10, 414, (panel_width - 10) // 2, 32)
 
         # UNO Interactive Buttons
-        self.draw_card = pygame.Rect(panel_x + 14, 664, panel_width - 28, 40)
-        self.deck_card = pygame.Rect(panel_x + (panel_width - 105) // 2, 506, 105, 145)
+        self.draw_card = pygame.Rect(panel_x + 14, 638, panel_width - 28, 40)
+        self.deck_card = pygame.Rect(panel_x + (panel_width - 105) // 2, 478, 105, 145)
 
         # Immortal Snail Target Selection Buttons
         btn_w = (panel_width - 34) // 2
-        self.target_white = pygame.Rect(panel_x + 14, 542, btn_w, 28)
-        self.target_black = pygame.Rect(panel_x + 14 + btn_w + 6, 542, btn_w, 28)
+        self.target_white = pygame.Rect(panel_x + 14, 510, btn_w, 28)
+        self.target_black = pygame.Rect(panel_x + 14 + btn_w + 6, 510, btn_w, 28)
 
 
 class ChessRenderer:
@@ -106,6 +113,7 @@ class ChessRenderer:
         self.font_title = pygame.font.SysFont("arial", 26, bold=True)
         self.font_subtitle = pygame.font.SysFont("arial", 13, bold=True)
         self.font_header = pygame.font.SysFont("arial", 17, bold=True)
+        self.font_clock = pygame.font.SysFont("arial", 20, bold=True)
         self.font_normal = pygame.font.SysFont("arial", 15)
         self.font_small = pygame.font.SysFont("arial", 13)
         self.font_micro = pygame.font.SysFont("arial", 11)
@@ -509,37 +517,65 @@ class ChessRenderer:
     def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect]:
         """Return clickable rectangles for (Classic_Chess_card, Chess_UNO_card, Immortal_Snail_card)."""
         screen_w = self.screen.get_width()
-        screen_h = self.screen.get_height()
-        card_w, card_h = 264, 276
+        card_w, card_h = 264, 258
         gap = 20
         total_w = card_w * 3 + gap * 2
         start_x = (screen_w - total_w) // 2
-        card_y = (screen_h - card_h) // 2 + 25
+        card_y = 195
 
         rect_classic = pygame.Rect(start_x, card_y, card_w, card_h)
         rect_uno = pygame.Rect(start_x + card_w + gap, card_y, card_w, card_h)
         rect_snail = pygame.Rect(start_x + (card_w + gap) * 2, card_y, card_w, card_h)
         return rect_classic, rect_uno, rect_snail
 
-    def draw_mode_selector_modal(self, mouse_pos: Tuple[int, int]) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect]:
+    def get_mode_selector_timer_rects(self) -> Tuple[List[Tuple[pygame.Rect, Optional[int]]], pygame.Rect, pygame.Rect]:
+        """Return preset rects [(rect, seconds), ...] and (minus_rect, plus_rect) for the start modal."""
+        screen_w = self.screen.get_width()
+        presets = [
+            ("Unlimited", None),
+            ("1 min", 60),
+            ("3 min", 180),
+            ("5 min", 300),
+            ("10 min", 600),
+            ("15 min", 900),
+            ("30 min", 1800),
+        ]
+        btn_w, btn_h = 94, 32
+        gap = 10
+        total_w = len(presets) * btn_w + (len(presets) - 1) * gap
+        start_x = (screen_w - total_w) // 2
+        y = 545
+
+        preset_rects = []
+        for i, (_, sec) in enumerate(presets):
+            r = pygame.Rect(start_x + i * (btn_w + gap), y, btn_w, btn_h)
+            preset_rects.append((r, sec))
+
+        minus_rect = pygame.Rect(screen_w // 2 - 96, 595, 38, 28)
+        plus_rect = pygame.Rect(screen_w // 2 + 58, 595, 38, 28)
+        return preset_rects, minus_rect, plus_rect
+
+    def draw_mode_selector_modal(
+        self, mouse_pos: Tuple[int, int], timer: Optional[ChessTimer] = None
+    ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect]:
         """
-        Draw a modal start menu allowing the player to select the game mode.
+        Draw a modal start menu allowing the player to select the game mode and match timer.
         Returns the three card Rects for event collision checking.
         """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
 
         overlay = pygame.Surface((screen_w, screen_h), pygame.SRCALPHA)
-        overlay.fill((12, 14, 18, 225))
+        overlay.fill((12, 14, 18, 230))
         self.screen.blit(overlay, (0, 0))
 
-        title_y = screen_h // 2 - 200
-        title_surf = self.font_title.render("SELECT GAME MODE", True, TEXT_PRIMARY)
+        title_y = 115
+        title_surf = self.font_title.render("SELECT GAME MODE & TIMER", True, TEXT_PRIMARY)
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Choose your Chessno game mode or press [1], [2], [3]", True, TEXT_SECONDARY)
-        s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 36))
+        sub_surf = self.font_normal.render("Choose a game mode [1, 2, 3] and set match time before starting", True, TEXT_SECONDARY)
+        s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 34))
         self.screen.blit(sub_surf, s_rect)
 
         rect_classic, rect_uno, rect_snail = self.get_mode_selector_rects()
@@ -552,9 +588,9 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, c_border, rect_classic, width=2 if is_hov_c else 1, border_radius=12)
 
         c_title = self.font_header.render("1. Classic Chess", True, TEXT_PRIMARY)
-        self.screen.blit(c_title, (rect_classic.x + 18, rect_classic.y + 20))
+        self.screen.blit(c_title, (rect_classic.x + 18, rect_classic.y + 16))
         c_badge = self.font_micro.render("STANDARD FIDE RULES", True, ACCENT_COLOR)
-        self.screen.blit(c_badge, (rect_classic.x + 18, rect_classic.y + 48))
+        self.screen.blit(c_badge, (rect_classic.x + 18, rect_classic.y + 40))
 
         c_lines = [
             "• Pure traditional chess",
@@ -565,9 +601,9 @@ class ChessRenderer:
         ]
         for idx, line in enumerate(c_lines):
             t = self.font_small.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(t, (rect_classic.x + 18, rect_classic.y + 78 + idx * 21))
+            self.screen.blit(t, (rect_classic.x + 18, rect_classic.y + 64 + idx * 20))
 
-        btn_c_rect = pygame.Rect(rect_classic.x + 18, rect_classic.bottom - 44, rect_classic.width - 36, 30)
+        btn_c_rect = pygame.Rect(rect_classic.x + 18, rect_classic.bottom - 42, rect_classic.width - 36, 30)
         btn_c_color = ACCENT_HOVER if is_hov_c else ACCENT_COLOR
         pygame.draw.rect(self.screen, btn_c_color, btn_c_rect, border_radius=6)
         btn_c_lbl = self.font_subtitle.render("PLAY CLASSIC [1]", True, (15, 35, 25))
@@ -581,9 +617,9 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, u_border, rect_uno, width=2 if is_hov_u else 1, border_radius=12)
 
         u_title = self.font_header.render("2. Chess + UNO", True, GOLD_COLOR)
-        self.screen.blit(u_title, (rect_uno.x + 18, rect_uno.y + 20))
+        self.screen.blit(u_title, (rect_uno.x + 18, rect_uno.y + 16))
         u_badge = self.font_micro.render("CARD POWER-UPS & FLIPS", True, (240, 160, 60))
-        self.screen.blit(u_badge, (rect_uno.x + 18, rect_uno.y + 48))
+        self.screen.blit(u_badge, (rect_uno.x + 18, rect_uno.y + 40))
 
         u_lines = [
             "• Animated card shuffle & draw",
@@ -594,9 +630,9 @@ class ChessRenderer:
         ]
         for idx, line in enumerate(u_lines):
             t = self.font_small.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(t, (rect_uno.x + 18, rect_uno.y + 78 + idx * 21))
+            self.screen.blit(t, (rect_uno.x + 18, rect_uno.y + 64 + idx * 20))
 
-        btn_u_rect = pygame.Rect(rect_uno.x + 18, rect_uno.bottom - 44, rect_uno.width - 36, 30)
+        btn_u_rect = pygame.Rect(rect_uno.x + 18, rect_uno.bottom - 42, rect_uno.width - 36, 30)
         btn_u_color = (255, 215, 90) if is_hov_u else GOLD_COLOR
         pygame.draw.rect(self.screen, btn_u_color, btn_u_rect, border_radius=6)
         btn_u_lbl = self.font_subtitle.render("PLAY UNO [2]", True, (35, 30, 10))
@@ -610,12 +646,12 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, s_border, rect_snail, width=2 if is_hov_s else 1, border_radius=12)
 
         s_title = self.font_header.render("3. Immortal Snail", True, (140, 230, 90))
-        self.screen.blit(s_title, (rect_snail.x + 18, rect_snail.y + 20))
+        self.screen.blit(s_title, (rect_snail.x + 18, rect_snail.y + 16))
         s_badge = self.font_micro.render("RELENTLESS PURSUIT HAZARD", True, (160, 240, 100))
-        self.screen.blit(s_badge, (rect_snail.x + 18, rect_snail.y + 48))
+        self.screen.blit(s_badge, (rect_snail.x + 18, rect_snail.y + 40))
 
         s_lines = [
-            "• Moves 1 tile every 3 moves",
+            "• Moves 1 tile every 5 moves",
             "• Relentlessly hunts target king",
             "• Crushes any piece in its route",
             "• Target king caught = game over!",
@@ -623,13 +659,84 @@ class ChessRenderer:
         ]
         for idx, line in enumerate(s_lines):
             t = self.font_small.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(t, (rect_snail.x + 18, rect_snail.y + 78 + idx * 21))
+            self.screen.blit(t, (rect_snail.x + 18, rect_snail.y + 64 + idx * 20))
 
-        btn_s_rect = pygame.Rect(rect_snail.x + 18, rect_snail.bottom - 44, rect_snail.width - 36, 30)
+        btn_s_rect = pygame.Rect(rect_snail.x + 18, rect_snail.bottom - 42, rect_snail.width - 36, 30)
         btn_s_color = (165, 245, 110) if is_hov_s else (135, 220, 85)
         pygame.draw.rect(self.screen, btn_s_color, btn_s_rect, border_radius=6)
         btn_s_lbl = self.font_subtitle.render("PLAY SNAIL [3]", True, (15, 35, 15))
         self.screen.blit(btn_s_lbl, btn_s_lbl.get_rect(center=btn_s_rect.center))
+
+        # ---------------------------------------------------------------------
+        # Pre-Match Match Timer (Time Control) Section
+        # ---------------------------------------------------------------------
+        pygame.draw.line(self.screen, (58, 64, 76), (screen_w // 2 - 380, 485), (screen_w // 2 + 380, 485), 1)
+
+        timer_title = self.font_header.render("TIME CONTROL (SET MATCH TIMER)", True, GOLD_COLOR)
+        self.screen.blit(timer_title, timer_title.get_rect(center=(screen_w // 2, 510)))
+
+        timer_sub = self.font_micro.render("Choose match time limit before starting. Clock begins ticking on first move.", True, TEXT_MUTED)
+        self.screen.blit(timer_sub, timer_sub.get_rect(center=(screen_w // 2, 528)))
+
+        preset_rects, minus_rect, plus_rect = self.get_mode_selector_timer_rects()
+        current_limit = timer.time_limit_seconds if timer else 300
+
+        presets_info = [
+            ("Unlimited", None),
+            ("1 min", 60),
+            ("3 min", 180),
+            ("5 min", 300),
+            ("10 min", 600),
+            ("15 min", 900),
+            ("30 min", 1800),
+        ]
+
+        for (p_rect, _), (label, sec) in zip(preset_rects, presets_info):
+            is_selected = (current_limit == sec)
+            is_hover = p_rect.collidepoint(mouse_pos)
+
+            if is_selected:
+                bg = (38, 70, 55)
+                border = ACCENT_COLOR
+                txt_color = ACCENT_COLOR
+                b_width = 2
+            elif is_hover:
+                bg = BTN_HOVER
+                border = (120, 130, 150)
+                txt_color = TEXT_PRIMARY
+                b_width = 1
+            else:
+                bg = BTN_COLOR
+                border = BTN_BORDER
+                txt_color = TEXT_SECONDARY
+                b_width = 1
+
+            pygame.draw.rect(self.screen, bg, p_rect, border_radius=6)
+            pygame.draw.rect(self.screen, border, p_rect, width=b_width, border_radius=6)
+            p_lbl = self.font_subtitle.render(label, True, txt_color)
+            self.screen.blit(p_lbl, p_lbl.get_rect(center=p_rect.center))
+
+        # Custom minute adjuster: [- 1m] [Current: X min] [+ 1m]
+        curr_min_str = timer.get_time_preset_label() if timer else "5 min"
+        curr_lbl = self.font_small.render(f"Selected: {curr_min_str}", True, TEXT_PRIMARY)
+        self.screen.blit(curr_lbl, curr_lbl.get_rect(center=(screen_w // 2 - 18, 609)))
+
+        # Minus button
+        is_hov_m = minus_rect.collidepoint(mouse_pos)
+        pygame.draw.rect(self.screen, BTN_HOVER if is_hov_m else BTN_COLOR, minus_rect, border_radius=5)
+        pygame.draw.rect(self.screen, ACCENT_COLOR if is_hov_m else BTN_BORDER, minus_rect, width=1, border_radius=5)
+        m_txt = self.font_small.render("-1m", True, TEXT_PRIMARY)
+        self.screen.blit(m_txt, m_txt.get_rect(center=minus_rect.center))
+
+        # Plus button
+        is_hov_p = plus_rect.collidepoint(mouse_pos)
+        pygame.draw.rect(self.screen, BTN_HOVER if is_hov_p else BTN_COLOR, plus_rect, border_radius=5)
+        pygame.draw.rect(self.screen, ACCENT_COLOR if is_hov_p else BTN_BORDER, plus_rect, width=1, border_radius=5)
+        p_txt = self.font_small.render("+1m", True, TEXT_PRIMARY)
+        self.screen.blit(p_txt, p_txt.get_rect(center=plus_rect.center))
+
+        tip_txt = self.font_micro.render("Press [T] during game to cycle timer • Press [Esc] to resume", True, TEXT_MUTED)
+        self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 646)))
 
         return rect_classic, rect_uno, rect_snail
 
@@ -768,8 +875,9 @@ class ChessRenderer:
         sound_enabled: bool,
         flipped: bool,
         piece_images: Optional[Dict[str, pygame.Surface]] = None,
+        timer: Optional[ChessTimer] = None,
     ) -> None:
-        """Render the complete right-hand info panel."""
+        """Render the complete right-hand info panel including clocks, turn status, and modes."""
         panel_rect = pygame.Rect(self.panel_x - 15, 0, self.screen.get_width() - self.panel_x + 15, self.screen.get_height())
         pygame.draw.rect(self.screen, PANEL_BG, panel_rect)
         pygame.draw.line(self.screen, PANEL_BORDER, (self.panel_x - 15, 0), (self.panel_x - 15, self.screen.get_height()), 2)
@@ -796,13 +904,56 @@ class ChessRenderer:
         mode_badge = self.font_subtitle.render(mode_str, True, mode_color)
         self.screen.blit(mode_badge, (px, 70))
 
-        # Mode switch button
+        # Mode and Timer switcher buttons in header
         self._draw_button("Mode", self.buttons.mode_select, mouse_pos)
+        t_label = timer.get_time_preset_label() if timer else "5 min"
+        self._draw_button(f"⏱ {t_label}", self.buttons.timer_select, mouse_pos)
 
         pygame.draw.line(self.screen, PANEL_BORDER, (px, 94), (px + pw, 94), 1)
 
+        # -------------------------------------------------------------
+        # Chess Match Clocks (White & Black)
+        # -------------------------------------------------------------
+        w_rect = self.buttons.white_clock
+        b_rect = self.buttons.black_clock
+
+        # White Clock
+        w_running = bool(timer and timer.is_running and game_state.turn == chess.WHITE and not game_state.is_game_over())
+        w_low = bool(timer and timer.is_low_time(chess.WHITE))
+        w_bg = (55, 30, 30) if (w_running and w_low) else ((32, 48, 42) if w_running else PANEL_CARD_BG)
+        w_border = CHECK_COLOR if (w_running and w_low) else (ACCENT_COLOR if w_running else PANEL_BORDER)
+
+        pygame.draw.rect(self.screen, w_bg, w_rect, border_radius=6)
+        pygame.draw.rect(self.screen, w_border, w_rect, width=2 if w_running else 1, border_radius=6)
+        pygame.draw.circle(self.screen, (240, 240, 240), (w_rect.x + 12, w_rect.y + 12), 4)
+        w_lbl = self.font_micro.render("WHITE", True, TEXT_PRIMARY if w_running else TEXT_MUTED)
+        self.screen.blit(w_lbl, (w_rect.x + 20, w_rect.y + 6))
+        w_time_str = timer.format_time(timer.white_time) if (timer and timer.has_timer) else "Unlimited"
+        w_t_color = (255, 120, 120) if (w_running and w_low) else (TEXT_PRIMARY if w_running else TEXT_SECONDARY)
+        w_t_font = self.font_clock if (timer and timer.has_timer) else self.font_small
+        w_t_surf = w_t_font.render(w_time_str, True, w_t_color)
+        self.screen.blit(w_t_surf, w_t_surf.get_rect(center=(w_rect.centerx, w_rect.y + 29)))
+
+        # Black Clock
+        b_running = bool(timer and timer.is_running and game_state.turn == chess.BLACK and not game_state.is_game_over())
+        b_low = bool(timer and timer.is_low_time(chess.BLACK))
+        b_bg = (55, 30, 30) if (b_running and b_low) else ((32, 48, 42) if b_running else PANEL_CARD_BG)
+        b_border = CHECK_COLOR if (b_running and b_low) else (ACCENT_COLOR if b_running else PANEL_BORDER)
+
+        pygame.draw.rect(self.screen, b_bg, b_rect, border_radius=6)
+        pygame.draw.rect(self.screen, b_border, b_rect, width=2 if b_running else 1, border_radius=6)
+        pygame.draw.circle(self.screen, (20, 22, 28), (b_rect.x + 12, b_rect.y + 12), 4)
+        pygame.draw.circle(self.screen, (100, 105, 120), (b_rect.x + 12, b_rect.y + 12), 4, width=1)
+        b_lbl = self.font_micro.render("BLACK", True, TEXT_PRIMARY if b_running else TEXT_MUTED)
+        self.screen.blit(b_lbl, (b_rect.x + 20, b_rect.y + 6))
+        b_time_str = timer.format_time(timer.black_time) if (timer and timer.has_timer) else "Unlimited"
+        b_t_color = (255, 120, 120) if (b_running and b_low) else (TEXT_PRIMARY if b_running else TEXT_SECONDARY)
+        b_t_font = self.font_clock if (timer and timer.has_timer) else self.font_small
+        b_t_surf = b_t_font.render(b_time_str, True, b_t_color)
+        self.screen.blit(b_t_surf, b_t_surf.get_rect(center=(b_rect.centerx, b_rect.y + 29)))
+
         # 2. Turn & Status Card
-        card_rect = pygame.Rect(px, 102, pw, 98)
+        card_rect = pygame.Rect(px, 154, pw, 78)
         pygame.draw.rect(self.screen, PANEL_CARD_BG, card_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, card_rect, width=1, border_radius=8)
 
@@ -812,11 +963,11 @@ class ChessRenderer:
         indicator_bg = (240, 240, 240) if game_state.turn == chess.WHITE else (30, 32, 40)
         indicator_border = (200, 200, 200) if game_state.turn == chess.WHITE else (100, 105, 120)
 
-        pygame.draw.circle(self.screen, indicator_bg, (px + 22, 126), 10)
-        pygame.draw.circle(self.screen, indicator_border, (px + 22, 126), 10, width=2)
+        pygame.draw.circle(self.screen, indicator_bg, (px + 22, 172), 9)
+        pygame.draw.circle(self.screen, indicator_border, (px + 22, 172), 9, width=2)
 
         turn_lbl = self.font_header.render(turn_str, True, turn_color)
-        self.screen.blit(turn_lbl, (px + 40, 116))
+        self.screen.blit(turn_lbl, (px + 40, 163))
 
         # Status badge
         status_text = game_state.status_summary()
@@ -843,7 +994,7 @@ class ChessRenderer:
             badge_color = ACCENT_COLOR
             badge_bg = (25, 55, 40)
 
-        status_rect = pygame.Rect(px + 12, 154, pw - 24, 30)
+        status_rect = pygame.Rect(px + 12, 194, pw - 24, 28)
         pygame.draw.rect(self.screen, badge_bg, status_rect, border_radius=6)
         pygame.draw.rect(self.screen, badge_color, status_rect, width=1, border_radius=6)
 
@@ -852,7 +1003,7 @@ class ChessRenderer:
         self.screen.blit(status_lbl, lbl_rect)
 
         # 3. Game Stats / History Card
-        stats_rect = pygame.Rect(px, 208, pw, 72)
+        stats_rect = pygame.Rect(px, 240, pw, 58)
         pygame.draw.rect(self.screen, PANEL_CARD_BG, stats_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, stats_rect, width=1, border_radius=8)
 
@@ -861,16 +1012,16 @@ class ChessRenderer:
         
         stat1 = self.font_small.render(f"Move: {move_num}", True, TEXT_SECONDARY)
         stat2 = self.font_small.render(f"Last Move: {last_san}", True, ACCENT_COLOR)
-        self.screen.blit(stat1, (px + 14, 218))
-        self.screen.blit(stat2, (px + 14, 244))
+        self.screen.blit(stat1, (px + 14, 248))
+        self.screen.blit(stat2, (px + 14, 270))
 
         # 4. Theme Selection Section
         theme_lbl = self.font_subtitle.render("PIECE & BOARD THEME", True, TEXT_MUTED)
-        self.screen.blit(theme_lbl, (px, 292))
+        self.screen.blit(theme_lbl, (px, 308))
 
         pack_info = f"{active_pack_name} ({active_pack_index + 1}/{total_packs})"
         pack_text = self.font_small.render(pack_info, True, TEXT_PRIMARY)
-        pack_rect = pack_text.get_rect(centerx=px + pw // 2, centery=358)
+        pack_rect = pack_text.get_rect(centerx=px + pw // 2, centery=344)
         self.screen.blit(pack_text, pack_rect)
 
         self._draw_button("< Prev", self.buttons.prev_theme, mouse_pos)
@@ -884,7 +1035,7 @@ class ChessRenderer:
         self._draw_button(sound_text, self.buttons.sound_toggle, mouse_pos)
 
         # 6. Active Mode Section: UNO Cards or Classic Placeholder
-        mod_rect = pygame.Rect(px, 498, pw, 246)
+        mod_rect = pygame.Rect(px, 458, pw, 280)
         pygame.draw.rect(self.screen, PANEL_CARD_BG, mod_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, mod_rect, width=1, border_radius=8)
 
@@ -894,78 +1045,70 @@ class ChessRenderer:
             phase_val = mode.phase.value
 
             card_cx = px + pw // 2
-            card_cy = 574
+            card_cy = 530
 
             # STATE 1: Awaiting Draw (Button + Deck)
             if phase_val == "Awaiting Draw":
-                # Render deck of cards
-                self.draw_uno_card_back(card_cx, card_cy, width=105, height=140)
-
-                # "Draw Card" button
+                self.draw_uno_card_back(card_cx, card_cy, width=100, height=132)
                 self._draw_button("Draw Card", self.buttons.draw_card, mouse_pos, accent=True)
 
-                # Subtle hint
                 hint_str = "Click button or press [Space]"
                 h_surf = self.font_micro.render(hint_str, True, (240, 205, 80))
-                self.screen.blit(h_surf, h_surf.get_rect(center=(px + pw // 2, 718)))
+                self.screen.blit(h_surf, h_surf.get_rect(center=(px + pw // 2, 692)))
 
             # STATE 2: Shuffling animation in progress
             elif phase_val == "Shuffling":
-                self.draw_shuffling_animation(card_cx, card_cy, mode.shuffle_progress, width=105, height=140)
+                self.draw_shuffling_animation(card_cx, card_cy, mode.shuffle_progress, width=100, height=132)
 
                 dots = "." * (1 + (int(pygame.time.get_ticks() / 150) % 3))
                 shuff_str = f"Shuffling Deck{dots}"
                 s_surf = self.font_subtitle.render(shuff_str, True, GOLD_COLOR)
-                self.screen.blit(s_surf, s_surf.get_rect(center=(px + pw // 2, 672)))
+                self.screen.blit(s_surf, s_surf.get_rect(center=(px + pw // 2, 626)))
 
                 deck_str = f"Deck: {deck.draw_pile_count} left"
                 d_surf = self.font_micro.render(deck_str, True, TEXT_SECONDARY)
-                self.screen.blit(d_surf, d_surf.get_rect(center=(px + pw // 2, 700)))
+                self.screen.blit(d_surf, d_surf.get_rect(center=(px + pw // 2, 650)))
 
             # STATE 3: Card is revealed and active
             else:
                 card = mode.current_card
                 if card is not None:
-                    self.draw_uno_card_graphic(card, card_cx, card_cy, width=105, height=140)
+                    self.draw_uno_card_graphic(card, card_cx, card_cy, width=100, height=132)
 
-                    # Move indicator
                     rem = mode.moves_remaining
                     tot = mode.moves_allowed
                     move_info_str = f"Moves: {tot - rem + 1} of {tot}"
                     m_surf = self.font_subtitle.render(move_info_str, True, GOLD_COLOR)
-                    self.screen.blit(m_surf, m_surf.get_rect(center=(px + pw // 2, 668)))
+                    self.screen.blit(m_surf, m_surf.get_rect(center=(px + pw // 2, 622)))
 
-                    # Deck counts
                     deck_str = f"Deck: {deck.draw_pile_count} left | Discard: {deck.discard_pile_count}"
                     d_surf = self.font_micro.render(deck_str, True, TEXT_SECONDARY)
-                    self.screen.blit(d_surf, d_surf.get_rect(center=(px + pw // 2, 692)))
+                    self.screen.blit(d_surf, d_surf.get_rect(center=(px + pw // 2, 644)))
 
-                    # Alert or card description
                     if mode.skip_alert_message:
                         alert_surf = self.font_micro.render(mode.skip_alert_message, True, CHECK_COLOR)
-                        self.screen.blit(alert_surf, alert_surf.get_rect(center=(px + pw // 2, 716)))
+                        self.screen.blit(alert_surf, alert_surf.get_rect(center=(px + pw // 2, 668)))
                     elif mode.pending_skips > 0:
                         skip_surf = self.font_micro.render(f"Pending Skips: {mode.pending_skips}", True, (240, 160, 50))
-                        self.screen.blit(skip_surf, skip_surf.get_rect(center=(px + pw // 2, 716)))
+                        self.screen.blit(skip_surf, skip_surf.get_rect(center=(px + pw // 2, 668)))
                     else:
                         desc_surf = self.font_micro.render(card.description, True, TEXT_MUTED)
-                        self.screen.blit(desc_surf, desc_surf.get_rect(center=(px + pw // 2, 716)))
+                        self.screen.blit(desc_surf, desc_surf.get_rect(center=(px + pw // 2, 668)))
 
         elif is_snail_mode:
             mode = game_state.mode
             mod_title = self.font_subtitle.render("DUAL IMMORTAL SNAILS", True, (140, 230, 90))
-            self.screen.blit(mod_title, (px + 14, 506))
+            self.screen.blit(mod_title, (px + 14, 466))
 
-            # Move Countdown (Every 5 moves)
             rem_moves = mode.moves_until_next_step
             step_lbl = self.font_small.render("Next step:", True, TEXT_PRIMARY)
-            self.screen.blit(step_lbl, (px + 14, 528))
+            self.screen.blit(step_lbl, (px + 14, 486))
 
             pip_w = 22
-            pip_h = 14
+            pip_h = 13
             pip_start_x = px + 88
             for p in range(5):
-                pip_rect = pygame.Rect(pip_start_x + p * (pip_w + 4), 530, pip_w, pip_h)
+                pip_rect = pygame.Rect(pip_start_x + p * (pip_w + 4), 488, pip_w, pip_h)
                 filled = (p < (5 - rem_moves))
                 if filled:
                     pygame.draw.rect(self.screen, (140, 220, 80), pip_rect, border_radius=3)
@@ -973,47 +1116,43 @@ class ChessRenderer:
                     pygame.draw.rect(self.screen, (50, 56, 68), pip_rect, border_radius=3)
                     pygame.draw.rect(self.screen, (75, 82, 98), pip_rect, width=1, border_radius=3)
 
-            count_desc = f"{rem_moves} legal move{'s' if rem_moves > 1 else ''} until step (every 5)"
+            count_desc = f"{rem_moves} legal move{'s' if rem_moves > 1 else ''} until step"
             desc_surf = self.font_micro.render(count_desc, True, (140, 220, 80) if rem_moves == 1 else TEXT_MUTED)
-            self.screen.blit(desc_surf, (px + 14, 548))
+            self.screen.blit(desc_surf, (px + 14, 504))
 
             # White Snail Info Card
             w_snail = mode.white_snail
             w_dist = w_snail.distance_to_target(game_state)
             w_dist_str = f"{w_dist} tiles" if w_dist is not None else "N/A"
-            w_card_rect = pygame.Rect(px + 10, 568, pw - 20, 54)
+            w_card_rect = pygame.Rect(px + 10, 522, pw - 20, 50)
             pygame.draw.rect(self.screen, (34, 46, 42), w_card_rect, border_radius=6)
             pygame.draw.rect(self.screen, (90, 215, 185), w_card_rect, width=1, border_radius=6)
 
             w_title = self.font_micro.render(f"WHITE SNAIL [{w_snail.location_name}]", True, (140, 255, 230))
             w_sub1 = self.font_micro.render(f"Hunting Black King ({w_dist_str} away)", True, TEXT_PRIMARY)
             w_sub2 = self.font_micro.render(f"Crushed: {len(w_snail.crushed_pieces)} Black pieces", True, TEXT_MUTED)
-            self.screen.blit(w_title, (px + 16, 572))
-            self.screen.blit(w_sub1, (px + 16, 588))
-            self.screen.blit(w_sub2, (px + 16, 604))
+            self.screen.blit(w_title, (px + 16, 525))
+            self.screen.blit(w_sub1, (px + 16, 540))
+            self.screen.blit(w_sub2, (px + 16, 555))
 
             # Black Snail Info Card
             b_snail = mode.black_snail
             b_dist = b_snail.distance_to_target(game_state)
             b_dist_str = f"{b_dist} tiles" if b_dist is not None else "N/A"
-            b_card_rect = pygame.Rect(px + 10, 626, pw - 20, 54)
+            b_card_rect = pygame.Rect(px + 10, 576, pw - 20, 50)
             pygame.draw.rect(self.screen, (46, 34, 38), b_card_rect, border_radius=6)
             pygame.draw.rect(self.screen, (240, 95, 95), b_card_rect, width=1, border_radius=6)
 
             b_title = self.font_micro.render(f"BLACK SNAIL [{b_snail.location_name}]", True, (255, 140, 140))
             b_sub1 = self.font_micro.render(f"Hunting White King ({b_dist_str} away)", True, TEXT_PRIMARY)
             b_sub2 = self.font_micro.render(f"Crushed: {len(b_snail.crushed_pieces)} White pieces", True, TEXT_MUTED)
-            self.screen.blit(b_title, (px + 16, 630))
-            self.screen.blit(b_sub1, (px + 16, 646))
-            self.screen.blit(b_sub2, (px + 16, 662))
-
-            # Friendly Safety Notice
-            safe_lbl = self.font_micro.render("Friendly pieces safe: Snails detour around own team", True, (130, 205, 140))
-            self.screen.blit(safe_lbl, safe_lbl.get_rect(center=(px + pw // 2, 692)))
+            self.screen.blit(b_title, (px + 16, 579))
+            self.screen.blit(b_sub1, (px + 16, 594))
+            self.screen.blit(b_sub2, (px + 16, 609))
 
             # Alert or Victory
             if mode.target_caught:
-                win_rect = pygame.Rect(px + 10, 706, pw - 20, 32)
+                win_rect = pygame.Rect(px + 10, 632, pw - 20, 30)
                 pygame.draw.rect(self.screen, (70, 25, 25), win_rect, border_radius=6)
                 pygame.draw.rect(self.screen, CHECK_COLOR, win_rect, width=2, border_radius=6)
                 vic_msg = "WHITE SNAIL CAUGHT BLACK KING!" if w_snail.target_caught else "BLACK SNAIL CAUGHT WHITE KING!"
@@ -1022,18 +1161,18 @@ class ChessRenderer:
             else:
                 steps_txt = f"Total steps taken: {mode.steps_taken}"
                 s_surf = self.font_micro.render(steps_txt, True, TEXT_MUTED)
-                self.screen.blit(s_surf, s_surf.get_rect(center=(px + pw // 2, 715)))
+                self.screen.blit(s_surf, s_surf.get_rect(center=(px + pw // 2, 646)))
 
         else:
             # Classic Mode Overview (Standard FIDE Chess)
             mod_title = self.font_subtitle.render("CLASSIC CHESS", True, ACCENT_COLOR)
-            self.screen.blit(mod_title, (px + 14, 508))
+            self.screen.blit(mod_title, (px + 14, 466))
 
             badge_lbl = self.font_micro.render("STANDARD FIDE RULES", True, TEXT_MUTED)
-            self.screen.blit(badge_lbl, (px + 14, 526))
+            self.screen.blit(badge_lbl, (px + 14, 484))
 
             # Rules Card
-            rules_box = pygame.Rect(px + 10, 544, pw - 20, 84)
+            rules_box = pygame.Rect(px + 10, 500, pw - 20, 76)
             pygame.draw.rect(self.screen, (28, 32, 40), rules_box, border_radius=6)
             pygame.draw.rect(self.screen, PANEL_BORDER, rules_box, width=1, border_radius=6)
 
@@ -1045,10 +1184,10 @@ class ChessRenderer:
             ]
             for idx, rule in enumerate(rules):
                 r_txt = self.font_micro.render(rule, True, TEXT_SECONDARY)
-                self.screen.blit(r_txt, (rules_box.x + 10, rules_box.y + 8 + idx * 18))
+                self.screen.blit(r_txt, (rules_box.x + 10, rules_box.y + 6 + idx * 17))
 
             # Material & Captured Pieces Card
-            caps_box = pygame.Rect(px + 10, 636, pw - 20, 98)
+            caps_box = pygame.Rect(px + 10, 582, pw - 20, 94)
             pygame.draw.rect(self.screen, (28, 32, 40), caps_box, border_radius=6)
             pygame.draw.rect(self.screen, PANEL_BORDER, caps_box, width=1, border_radius=6)
 
@@ -1078,40 +1217,40 @@ class ChessRenderer:
 
                 # Render Black's captures (White pieces)
                 b_lbl = self.font_micro.render(f"Black (+{len(black_caps)}):", True, TEXT_PRIMARY)
-                self.screen.blit(b_lbl, (caps_box.x + 10, caps_box.y + 54))
+                self.screen.blit(b_lbl, (caps_box.x + 10, caps_box.y + 52))
 
                 if piece_images:
                     for i, code in enumerate(black_caps[:8]):
                         if code in piece_images:
                             icon = pygame.transform.smoothscale(piece_images[code], (18, 18))
-                            self.screen.blit(icon, (caps_box.x + 85 + i * 18, caps_box.y + 52))
+                            self.screen.blit(icon, (caps_box.x + 85 + i * 18, caps_box.y + 50))
                     if len(black_caps) > 8:
                         extra_txt = self.font_micro.render(f"+{len(black_caps) - 8}", True, TEXT_MUTED)
-                        self.screen.blit(extra_txt, (caps_box.x + 85 + 8 * 18, caps_box.y + 54))
+                        self.screen.blit(extra_txt, (caps_box.x + 85 + 8 * 18, caps_box.y + 52))
                 else:
                     codes_str = ", ".join(c.upper() for c in black_caps[:6])
                     c_surf = self.font_micro.render(codes_str, True, TEXT_SECONDARY)
-                    self.screen.blit(c_surf, (caps_box.x + 85, caps_box.y + 54))
+                    self.screen.blit(c_surf, (caps_box.x + 85, caps_box.y + 52))
 
                 hint_str = "Switch mode anytime via [Mode]"
                 h_surf = self.font_micro.render(hint_str, True, TEXT_MUTED)
-                self.screen.blit(h_surf, h_surf.get_rect(center=(caps_box.centerx, caps_box.bottom - 12)))
+                self.screen.blit(h_surf, h_surf.get_rect(center=(caps_box.centerx, caps_box.bottom - 10)))
             else:
                 c_title = self.font_micro.render("GAME IN PROGRESS", True, TEXT_MUTED)
-                self.screen.blit(c_title, (caps_box.x + 10, caps_box.y + 10))
+                self.screen.blit(c_title, (caps_box.x + 10, caps_box.y + 8))
 
                 no_caps_txt = self.font_small.render("No captures yet", True, TEXT_SECONDARY)
-                self.screen.blit(no_caps_txt, (caps_box.x + 10, caps_box.y + 30))
+                self.screen.blit(no_caps_txt, (caps_box.x + 10, caps_box.y + 26))
 
                 hint1 = self.font_micro.render("Play classic chess, or click", True, TEXT_MUTED)
                 hint2 = self.font_micro.render("'Mode' at top for UNO / Snail!", True, GOLD_COLOR)
-                self.screen.blit(hint1, (caps_box.x + 10, caps_box.y + 54))
-                self.screen.blit(hint2, (caps_box.x + 10, caps_box.y + 72))
+                self.screen.blit(hint1, (caps_box.x + 10, caps_box.y + 48))
+                self.screen.blit(hint2, (caps_box.x + 10, caps_box.y + 66))
 
         # 7. Quick Controls Footer
-        pygame.draw.line(self.screen, PANEL_BORDER, (px, 755), (px + pw, 755), 1)
+        pygame.draw.line(self.screen, PANEL_BORDER, (px, 746), (px + pw, 746), 1)
         help_title = self.font_subtitle.render("CONTROLS", True, TEXT_MUTED)
-        self.screen.blit(help_title, (px, 765))
+        self.screen.blit(help_title, (px, 754))
 
         if is_uno_mode:
             fourth_line = "• [Space] Draw Card"
@@ -1123,12 +1262,12 @@ class ChessRenderer:
         controls = [
             "• Click piece + click target square",
             "• Or drag-and-drop piece",
-            "• [R] Restart Game | [F] Flip View",
+            "• [R] Restart | [T] Time | [F] Flip",
             fourth_line,
         ]
         for idx, line in enumerate(controls):
             ctrl_txt = self.font_micro.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(ctrl_txt, (px, 788 + idx * 18))
+            self.screen.blit(ctrl_txt, (px, 776 + idx * 18))
 
     def _draw_button(
         self,

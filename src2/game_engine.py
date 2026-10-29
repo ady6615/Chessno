@@ -88,6 +88,10 @@ class GameState:
         self._pre_move_validators: List[Callable[["GameState", chess.Move], bool]] = []
         self._post_move_hooks: List[Callable[["GameState", MoveResult], None]] = []
 
+        # Time control timeout state
+        self.timeout_winner: Optional[chess.Color] = None
+        self.timeout_reason: Optional[str] = None
+
         self.mode.on_init(self)
 
     # -------------------------------------------------------------------------
@@ -128,8 +132,16 @@ class GameState:
         self.mode = mode
         self.mode.on_init(self)
 
+    def set_timeout(self, loser_color: chess.Color) -> None:
+        """Register a match defeat by time expiration."""
+        self.timeout_winner = chess.BLACK if loser_color == chess.WHITE else chess.WHITE
+        winner_str = "Black" if loser_color == chess.WHITE else "White"
+        self.timeout_reason = f"Time Out! {winner_str} wins on time"
+
     def is_game_over(self) -> bool:
-        """True if game is over by checkmate, any draw condition, or mod condition."""
+        """True if game is over by checkmate, timeout, any draw condition, or mod condition."""
+        if self.timeout_winner is not None:
+            return True
         if hasattr(self.mode, "is_game_over") and self.mode.is_game_over(self):
             return True
         if hasattr(self.mode, "moves_remaining") and self.mode.moves_remaining > 0:
@@ -144,6 +156,8 @@ class GameState:
 
     def winner(self) -> Optional[chess.Color]:
         """Returns chess.WHITE, chess.BLACK, or None if drawn or ongoing."""
+        if self.timeout_winner is not None:
+            return self.timeout_winner
         if hasattr(self.mode, "winner"):
             mod_winner = self.mode.winner(self)
             if mod_winner is not None:
@@ -154,6 +168,8 @@ class GameState:
 
     def game_over_reason(self) -> Optional[str]:
         """Human-readable string explaining why the game is over, or None."""
+        if self.timeout_reason is not None:
+            return self.timeout_reason
         if hasattr(self.mode, "game_over_reason"):
             mod_reason = self.mode.game_over_reason(self)
             if mod_reason is not None:
@@ -414,6 +430,8 @@ class GameState:
         self.move_history.clear()
         self.captured_pieces = {"w": [], "b": []}
         self.last_move = None
+        self.timeout_winner = None
+        self.timeout_reason = None
         self.mode.on_init(self)
 
     # -------------------------------------------------------------------------

@@ -38,6 +38,7 @@ from coordinates import (
 from game_engine import GameState, ClassicChessMode
 from uno_engine import ChessUnoMode, UnoTurnPhase
 from snail_engine import ImmortalSnailMode
+from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 
 # Window dimensions
@@ -96,6 +97,7 @@ def main() -> None:
     )
 
     # 5. UI and Interaction State
+    timer = ChessTimer(time_limit_seconds=300)
     mode_selector_open: bool = False
     selected_square: Optional[chess.Square] = None
     legal_destinations: List[chess.Square] = []
@@ -131,6 +133,7 @@ def main() -> None:
         drag_start_square = None
         pending_promotion = None
         mode_selector_open = False
+        timer.reset()
         Assets.play_sound("game_start")
 
     def change_theme(direction: int) -> None:
@@ -148,7 +151,20 @@ def main() -> None:
     # 6. Main Game Loop
     running = True
     while running:
+        dt = clock.tick(FPS) / 1000.0
         mouse_pos = pygame.mouse.get_pos()
+
+        # Update match chess clock countdown
+        if not mode_selector_open and not game_state.is_game_over():
+            timeout_loser = timer.update(dt)
+            if timeout_loser is not None:
+                game_state.set_timeout(timeout_loser)
+                Assets.play_sound("game_over")
+                selected_square = None
+                legal_destinations = []
+                dragging = False
+                drag_start_square = None
+                pending_promotion = None
 
         # In Chess + UNO mode, advance shuffle animation
         if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.SHUFFLING:
@@ -169,6 +185,7 @@ def main() -> None:
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
                     c_rect, u_rect, s_rect = renderer.get_mode_selector_rects()
+                    p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     if c_rect.collidepoint(event.pos):
                         switch_to_mode("Classic")
                     elif u_rect.collidepoint(event.pos):
@@ -176,8 +193,23 @@ def main() -> None:
                     elif s_rect.collidepoint(event.pos):
                         switch_to_mode("Immortal Snail")
                     else:
-                        # Clicked outside cards: close modal
-                        mode_selector_open = False
+                        t_clicked = False
+                        for p_rect, sec in p_rects:
+                            if p_rect.collidepoint(event.pos):
+                                timer.set_time_limit(sec)
+                                Assets.play_sound("move")
+                                t_clicked = True
+                                break
+                        if not t_clicked:
+                            if minus_r.collidepoint(event.pos):
+                                timer.adjust_custom_minutes(-1)
+                                Assets.play_sound("move")
+                            elif plus_r.collidepoint(event.pos):
+                                timer.adjust_custom_minutes(1)
+                                Assets.play_sound("move")
+                            else:
+                                mode_selector_open = False
+                                timer.resume()
                     continue
 
                 # 2. Promotion Modal Intercept
@@ -190,6 +222,7 @@ def main() -> None:
                             result = game_state.make_move(from_sq, to_sq, promotion=ptype)
                             if result.success:
                                 play_move_sound(result)
+                                timer.switch_turn(game_state.turn)
                             pending_promotion = None
                             selected_square = None
                             legal_destinations = []
@@ -206,6 +239,17 @@ def main() -> None:
                 # 3. Check UI Button Clicks
                 if renderer.buttons.mode_select.collidepoint(event.pos):
                     mode_selector_open = True
+                    timer.pause()
+                    continue
+
+                if renderer.buttons.timer_select.collidepoint(event.pos):
+                    timer.cycle_preset()
+                    Assets.play_sound("move")
+                    continue
+
+                if (renderer.buttons.white_clock.collidepoint(event.pos) or renderer.buttons.black_clock.collidepoint(event.pos)) and len(game_state.move_history) == 0:
+                    timer.cycle_preset()
+                    Assets.play_sound("move")
                     continue
 
                 if renderer.buttons.prev_theme.collidepoint(event.pos):
@@ -218,6 +262,7 @@ def main() -> None:
 
                 if renderer.buttons.new_game.collidepoint(event.pos):
                     game_state.reset()
+                    timer.reset()
                     selected_square = None
                     legal_destinations = []
                     dragging = False
@@ -278,6 +323,7 @@ def main() -> None:
                                 result = game_state.make_move(selected_square, clicked_sq)
                                 if result.success:
                                     play_move_sound(result)
+                                    timer.switch_turn(game_state.turn)
                                 selected_square = None
                                 legal_destinations = []
                         else:
@@ -288,6 +334,8 @@ def main() -> None:
                                 legal_destinations = game_state.get_legal_destinations(clicked_sq)
                                 dragging = True
                                 drag_start_square = clicked_sq
+                                if not timer.started and timer.has_timer and not game_state.is_game_over():
+                                    timer.start(game_state.turn)
                             else:
                                 # Deselect
                                 selected_square = None
@@ -301,6 +349,8 @@ def main() -> None:
                             legal_destinations = game_state.get_legal_destinations(clicked_sq)
                             dragging = True
                             drag_start_square = clicked_sq
+                            if not timer.started and timer.has_timer and not game_state.is_game_over():
+                                timer.start(game_state.turn)
 
             # ---------------------------------------------------------
             # MOUSE BUTTON UP
@@ -324,6 +374,7 @@ def main() -> None:
                                 result = game_state.make_move(drag_start_square, target_sq)
                                 if result.success:
                                     play_move_sound(result)
+                                    timer.switch_turn(game_state.turn)
                                 selected_square = None
                                 legal_destinations = []
                         else:
@@ -342,12 +393,17 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:
                     game_state.reset()
+                    timer.reset()
                     selected_square = None
                     legal_destinations = []
                     dragging = False
                     drag_start_square = None
                     pending_promotion = None
                     Assets.play_sound("game_start")
+
+                elif event.key == pygame.K_t:
+                    timer.cycle_preset()
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_f:
                     flipped = not flipped
@@ -379,6 +435,7 @@ def main() -> None:
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
                         mode_selector_open = False
+                        timer.resume()
                     else:
                         pending_promotion = None
                         selected_square = None
@@ -442,14 +499,14 @@ def main() -> None:
             sound_enabled=Assets.is_sound_enabled(),
             flipped=flipped,
             piece_images=piece_images,
+            timer=timer,
         )
 
         # 7. Start Menu / Mode Selector Modal
         if mode_selector_open:
-            renderer.draw_mode_selector_modal(mouse_pos)
+            renderer.draw_mode_selector_modal(mouse_pos, timer=timer)
 
         pygame.display.flip()
-        clock.tick(FPS)
 
     pygame.quit()
 
