@@ -441,6 +441,7 @@ def main() -> None:
             mouse_pos=mouse_pos,
             sound_enabled=Assets.is_sound_enabled(),
             flipped=flipped,
+            piece_images=piece_images,
         )
 
         # 7. Start Menu / Mode Selector Modal

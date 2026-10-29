@@ -767,6 +767,7 @@ class ChessRenderer:
         mouse_pos: Tuple[int, int],
         sound_enabled: bool,
         flipped: bool,
+        piece_images: Optional[Dict[str, pygame.Surface]] = None,
     ) -> None:
         """Render the complete right-hand info panel."""
         panel_rect = pygame.Rect(self.panel_x - 15, 0, self.screen.get_width() - self.panel_x + 15, self.screen.get_height())
@@ -1024,44 +1025,106 @@ class ChessRenderer:
                 self.screen.blit(s_surf, s_surf.get_rect(center=(px + pw // 2, 715)))
 
         else:
-            # Classic mode placeholder
-            mod_title = self.font_subtitle.render("MODS & UNO CARDS", True, TEXT_MUTED)
-            self.screen.blit(mod_title, (px + 14, 510))
+            # Classic Mode Overview (Standard FIDE Chess)
+            mod_title = self.font_subtitle.render("CLASSIC CHESS", True, ACCENT_COLOR)
+            self.screen.blit(mod_title, (px + 14, 508))
 
-            mod_desc = [
-                "Currently in Classic Chess.",
-                "Click 'Mode' at the top to",
-                "switch to UNO or Snail mode!",
-                "",
-                "Available Modes:",
-                "- Chess + UNO Powerups",
-                "- Immortal Snail Hazard",
+            badge_lbl = self.font_micro.render("STANDARD FIDE RULES", True, TEXT_MUTED)
+            self.screen.blit(badge_lbl, (px + 14, 526))
+
+            # Rules Card
+            rules_box = pygame.Rect(px + 10, 544, pw - 20, 84)
+            pygame.draw.rect(self.screen, (28, 32, 40), rules_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, rules_box, width=1, border_radius=6)
+
+            rules = [
+                "• 2-Player turn-based chess",
+                "• Castling & En Passant enabled",
+                "• Interactive Pawn Promotion",
+                "• Check, Checkmate & Draws",
             ]
-            for idx, line in enumerate(mod_desc):
-                txt = self.font_small.render(line, True, TEXT_SECONDARY)
-                self.screen.blit(txt, (px + 14, 538 + idx * 21))
+            for idx, rule in enumerate(rules):
+                r_txt = self.font_micro.render(rule, True, TEXT_SECONDARY)
+                self.screen.blit(r_txt, (rules_box.x + 10, rules_box.y + 8 + idx * 18))
 
-            card_w, card_h = 56, 76
-            for c in range(3):
-                cx = px + 18 + c * (card_w + 12)
-                cy = 650
-                slot = pygame.Rect(cx, cy, card_w, card_h)
-                pygame.draw.rect(self.screen, (34, 38, 46), slot, border_radius=6)
-                pygame.draw.rect(self.screen, (68, 74, 88), slot, width=1, border_radius=6)
-                slot_lbl = self.font_micro.render("CARD", True, TEXT_MUTED)
-                sl_rect = slot_lbl.get_rect(center=slot.center)
-                self.screen.blit(slot_lbl, sl_rect)
+            # Material & Captured Pieces Card
+            caps_box = pygame.Rect(px + 10, 636, pw - 20, 98)
+            pygame.draw.rect(self.screen, (28, 32, 40), caps_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, caps_box, width=1, border_radius=6)
+
+            white_caps = game_state.captured_pieces.get("w", [])
+            black_caps = game_state.captured_pieces.get("b", [])
+
+            if white_caps or black_caps:
+                c_title = self.font_micro.render("CAPTURED PIECES", True, TEXT_MUTED)
+                self.screen.blit(c_title, (caps_box.x + 10, caps_box.y + 6))
+
+                # Render White's captures (Black pieces)
+                w_lbl = self.font_micro.render(f"White (+{len(white_caps)}):", True, TEXT_PRIMARY)
+                self.screen.blit(w_lbl, (caps_box.x + 10, caps_box.y + 24))
+
+                if piece_images:
+                    for i, code in enumerate(white_caps[:8]):
+                        if code in piece_images:
+                            icon = pygame.transform.smoothscale(piece_images[code], (18, 18))
+                            self.screen.blit(icon, (caps_box.x + 85 + i * 18, caps_box.y + 22))
+                    if len(white_caps) > 8:
+                        extra_txt = self.font_micro.render(f"+{len(white_caps) - 8}", True, TEXT_MUTED)
+                        self.screen.blit(extra_txt, (caps_box.x + 85 + 8 * 18, caps_box.y + 24))
+                else:
+                    codes_str = ", ".join(c.upper() for c in white_caps[:6])
+                    c_surf = self.font_micro.render(codes_str, True, TEXT_SECONDARY)
+                    self.screen.blit(c_surf, (caps_box.x + 85, caps_box.y + 24))
+
+                # Render Black's captures (White pieces)
+                b_lbl = self.font_micro.render(f"Black (+{len(black_caps)}):", True, TEXT_PRIMARY)
+                self.screen.blit(b_lbl, (caps_box.x + 10, caps_box.y + 54))
+
+                if piece_images:
+                    for i, code in enumerate(black_caps[:8]):
+                        if code in piece_images:
+                            icon = pygame.transform.smoothscale(piece_images[code], (18, 18))
+                            self.screen.blit(icon, (caps_box.x + 85 + i * 18, caps_box.y + 52))
+                    if len(black_caps) > 8:
+                        extra_txt = self.font_micro.render(f"+{len(black_caps) - 8}", True, TEXT_MUTED)
+                        self.screen.blit(extra_txt, (caps_box.x + 85 + 8 * 18, caps_box.y + 54))
+                else:
+                    codes_str = ", ".join(c.upper() for c in black_caps[:6])
+                    c_surf = self.font_micro.render(codes_str, True, TEXT_SECONDARY)
+                    self.screen.blit(c_surf, (caps_box.x + 85, caps_box.y + 54))
+
+                hint_str = "Switch mode anytime via [Mode]"
+                h_surf = self.font_micro.render(hint_str, True, TEXT_MUTED)
+                self.screen.blit(h_surf, h_surf.get_rect(center=(caps_box.centerx, caps_box.bottom - 12)))
+            else:
+                c_title = self.font_micro.render("GAME IN PROGRESS", True, TEXT_MUTED)
+                self.screen.blit(c_title, (caps_box.x + 10, caps_box.y + 10))
+
+                no_caps_txt = self.font_small.render("No captures yet", True, TEXT_SECONDARY)
+                self.screen.blit(no_caps_txt, (caps_box.x + 10, caps_box.y + 30))
+
+                hint1 = self.font_micro.render("Play classic chess, or click", True, TEXT_MUTED)
+                hint2 = self.font_micro.render("'Mode' at top for UNO / Snail!", True, GOLD_COLOR)
+                self.screen.blit(hint1, (caps_box.x + 10, caps_box.y + 54))
+                self.screen.blit(hint2, (caps_box.x + 10, caps_box.y + 72))
 
         # 7. Quick Controls Footer
         pygame.draw.line(self.screen, PANEL_BORDER, (px, 755), (px + pw, 755), 1)
         help_title = self.font_subtitle.render("CONTROLS", True, TEXT_MUTED)
         self.screen.blit(help_title, (px, 765))
 
+        if is_uno_mode:
+            fourth_line = "• [Space] Draw Card"
+        elif is_snail_mode:
+            fourth_line = "• Snails step every 5 moves"
+        else:
+            fourth_line = "• [Left / Right] Switch Theme"
+
         controls = [
             "• Click piece + click target square",
             "• Or drag-and-drop piece",
             "• [R] Restart Game | [F] Flip View",
-            "• [Space] Draw Card (UNO mode)",
+            fourth_line,
         ]
         for idx, line in enumerate(controls):
             ctrl_txt = self.font_micro.render(line, True, TEXT_SECONDARY)
