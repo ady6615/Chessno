@@ -118,6 +118,40 @@ class TestUIRendering(unittest.TestCase):
         rects = self.renderer.draw_mode_selector_modal(mouse_pos=(600, 300))
         self.assertEqual(len(rects), 4)
 
+    def test_winning_popup_rendering_white_wins(self):
+        state = GameState()
+        # White wins by timeout
+        state.set_timeout(chess.BLACK)
+        self.assertTrue(state.is_game_over())
+        self.assertEqual(state.winner(), chess.WHITE)
+
+        popup_rect = self.renderer.get_game_over_popup_rect()
+        # Center should be in the middle of the board (50 + 400, 50 + 400) = (450, 450)
+        self.assertEqual(popup_rect.center, (450, 450))
+
+        restart_btn = self.renderer.draw_game_over_popup(state, mouse_pos=(450, 450))
+        self.assertTrue(popup_rect.contains(restart_btn))
+
+    def test_winning_popup_rendering_black_wins(self):
+        state = GameState()
+        # Black wins by timeout
+        state.set_timeout(chess.WHITE)
+        self.assertTrue(state.is_game_over())
+        self.assertEqual(state.winner(), chess.BLACK)
+
+        restart_btn = self.renderer.draw_game_over_popup(state, mouse_pos=(0, 0))
+        self.assertIsNotNone(restart_btn)
+
+    def test_winning_popup_rendering_tie(self):
+        state = GameState(mode=QueenPawnMode())
+        # Board with only queens (Tie)
+        state.board = chess.Board("3q4/8/8/8/8/8/8/3Q4 w - - 0 1")
+        self.assertTrue(state.is_game_over())
+        self.assertIsNone(state.winner())
+
+        restart_btn = self.renderer.draw_game_over_popup(state, mouse_pos=(0, 0))
+        self.assertIsNotNone(restart_btn)
+
 
 if __name__ == "__main__":
     unittest.main()

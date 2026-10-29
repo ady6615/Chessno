@@ -111,6 +111,7 @@ class ChessRenderer:
 
         # Initialize typography
         self.font_title = pygame.font.SysFont("arial", 26, bold=True)
+        self.font_winner = pygame.font.SysFont("arial", 38, bold=True)
         self.font_subtitle = pygame.font.SysFont("arial", 13, bold=True)
         self.font_header = pygame.font.SysFont("arial", 17, bold=True)
         self.font_clock = pygame.font.SysFont("arial", 20, bold=True)
@@ -509,6 +510,108 @@ class ChessRenderer:
                 scaled = pygame.transform.smoothscale(img, (38, 38))
                 img_rect = scaled.get_rect(center=(btn_rect.centerx, btn_rect.centery))
                 self.screen.blit(scaled, img_rect)
+
+    # -------------------------------------------------------------------------
+    # Game Over / Winning Title Popup (Middle of Board with 50% Transparency)
+    # -------------------------------------------------------------------------
+
+    def get_game_over_popup_rect(self) -> pygame.Rect:
+        """Return the centered bounding rect of the game over popup in the middle of the board."""
+        cx = self.board_x + 4 * self.square_size
+        cy = self.board_y + 4 * self.square_size
+        popup_w, popup_h = 480, 200
+        return pygame.Rect(cx - popup_w // 2, cy - popup_h // 2, popup_w, popup_h)
+
+    def get_game_over_restart_rect(self) -> pygame.Rect:
+        """Return the screen rect for the 'PLAY AGAIN' button inside the popup."""
+        popup_rect = self.get_game_over_popup_rect()
+        btn_w, btn_h = 190, 36
+        btn_x = popup_rect.centerx - btn_w // 2
+        btn_y = popup_rect.bottom - 48
+        return pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+
+    def draw_game_over_popup(
+        self,
+        game_state: GameState,
+        mouse_pos: Tuple[int, int] = (0, 0),
+    ) -> pygame.Rect:
+        """
+        Draw a winning title popup in the middle of the board with 50% transparency.
+        Displays 'WHITE WINS' or 'BLACK WINS' (or 'TIE / DRAW'), reason, and interactive restart button.
+        """
+        popup_rect = self.get_game_over_popup_rect()
+        popup_w, popup_h = popup_rect.width, popup_rect.height
+
+        winner = game_state.winner()
+        reason = game_state.game_over_reason() or "Game Over"
+
+        # Theme styling based on winner
+        if winner == chess.WHITE:
+            title_text = "WHITE WINS"
+            badge_text = "★ VICTORY ★"
+            accent_rgb = (255, 215, 80)      # Champion gold
+            title_color = (255, 248, 220)    # Warm bright ivory
+            badge_color = (255, 215, 90)
+            btn_bg_base = (45, 65, 50)
+        elif winner == chess.BLACK:
+            title_text = "BLACK WINS"
+            badge_text = "★ VICTORY ★"
+            accent_rgb = (240, 90, 90)       # Ruby crimson / obsidian
+            title_color = (255, 225, 225)    # Cool crimson white
+            badge_color = (255, 120, 120)
+            btn_bg_base = (65, 40, 45)
+        else:
+            title_text = "TIE / DRAW"
+            badge_text = "★ MATCH TIED ★"
+            accent_rgb = (130, 185, 240)     # Cool silver cyan
+            title_color = (235, 245, 255)
+            badge_color = (140, 200, 255)
+            btn_bg_base = (40, 50, 65)
+
+        # 50% transparent surface (alpha = 128)
+        popup_surf = pygame.Surface((popup_w, popup_h), pygame.SRCALPHA)
+
+        # 1. Background card filled with 50% opacity dark glass (alpha 128)
+        # Allows underlying board squares and pieces to show through
+        pygame.draw.rect(popup_surf, (14, 18, 25, 128), (0, 0, popup_w, popup_h), border_radius=18)
+
+        # 2. Border with 50% transparency (alpha 128)
+        border_rgba = (accent_rgb[0], accent_rgb[1], accent_rgb[2], 128)
+        pygame.draw.rect(popup_surf, border_rgba, (0, 0, popup_w, popup_h), width=3, border_radius=18)
+
+        # Inner subtle highlight outline
+        inner_rgba = (255, 255, 255, 30)
+        pygame.draw.rect(popup_surf, inner_rgba, (3, 3, popup_w - 6, popup_h - 6), width=1, border_radius=15)
+
+        # 3. Top badge
+        b_surf = self.font_micro.render(badge_text, True, badge_color)
+        popup_surf.blit(b_surf, b_surf.get_rect(center=(popup_w // 2, 24)))
+
+        # 4. Main Winning Title: 'WHITE WINS' or 'BLACK WINS'
+        t_surf = self.font_winner.render(title_text, True, title_color)
+        popup_surf.blit(t_surf, t_surf.get_rect(center=(popup_w // 2, 58)))
+
+        # 5. Outcome Reason subtitle
+        r_text = reason if len(reason) <= 46 else reason[:43] + "..."
+        r_surf = self.font_small.render(r_text, True, (215, 220, 230))
+        popup_surf.blit(r_surf, r_surf.get_rect(center=(popup_w // 2, 98)))
+
+        # 6. Interactive 'PLAY AGAIN' button
+        btn_rect_local = pygame.Rect((popup_w - 190) // 2, popup_h - 52, 190, 36)
+        restart_rect_screen = self.get_game_over_restart_rect()
+        is_btn_hovered = restart_rect_screen.collidepoint(mouse_pos)
+
+        btn_bg = (accent_rgb[0] // 3 + 40, accent_rgb[1] // 3 + 40, accent_rgb[2] // 3 + 40, 180) if is_btn_hovered else (btn_bg_base[0], btn_bg_base[1], btn_bg_base[2], 140)
+        pygame.draw.rect(popup_surf, btn_bg, btn_rect_local, border_radius=8)
+        pygame.draw.rect(popup_surf, (accent_rgb[0], accent_rgb[1], accent_rgb[2], 220 if is_btn_hovered else 150), btn_rect_local, width=2 if is_btn_hovered else 1, border_radius=8)
+
+        btn_lbl = self.font_subtitle.render("PLAY AGAIN [R]", True, (255, 255, 255) if is_btn_hovered else (230, 235, 245))
+        popup_surf.blit(btn_lbl, btn_lbl.get_rect(center=btn_rect_local.center))
+
+        # 7. Blit popup to screen at centered board position
+        self.screen.blit(popup_surf, popup_rect.topleft)
+
+        return restart_rect_screen
 
     # -------------------------------------------------------------------------
     # Game Mode Selection Start Menu / Modal

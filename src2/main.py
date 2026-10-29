@@ -244,6 +244,20 @@ def main() -> None:
                         legal_destinations = []
                     continue
 
+                # 2b. Game Over Winning Popup Restart Click
+                if game_state.is_game_over() and not mode_selector_open:
+                    restart_btn = renderer.get_game_over_restart_rect()
+                    if restart_btn.collidepoint(event.pos):
+                        game_state.reset()
+                        timer.reset()
+                        selected_square = None
+                        legal_destinations = []
+                        dragging = False
+                        drag_start_square = None
+                        pending_promotion = None
+                        Assets.play_sound("game_start")
+                        continue
+
                 # 3. Check UI Button Clicks
                 if renderer.buttons.mode_select.collidepoint(event.pos):
                     mode_selector_open = True
@@ -512,6 +526,10 @@ def main() -> None:
             piece_images=piece_images,
             timer=timer,
         )
+
+        # 6b. Winning Title Popup (in the middle of the board with 50% transparency)
+        if game_state.is_game_over() and not mode_selector_open:
+            renderer.draw_game_over_popup(game_state, mouse_pos=mouse_pos)
 
         # 7. Start Menu / Mode Selector Modal
         if mode_selector_open:
