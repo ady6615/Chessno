@@ -13,17 +13,18 @@ Game Setup:
   * No Kings, Rooks, Bishops, or Knights on the initial board.
 - Symmetrical FEN: "3q4/8/8/pppppppp/PPPPPPPP/8/8/3Q4 w - - 0 1"
 
-Game Rules & Movement:
+Game Rules & Win Conditions:
 1. Standard chess movement:
    - Queens move across ranks, files, and diagonals.
    - Pawns move 1 square forward (when unblocked) and capture 1 square diagonally forward.
    - Pawns that reach the opponent's back rank (rank 8 for White, rank 1 for Black)
      promote via the standard promotion modal (Queen, Rook, Bishop, Knight).
-2. Royal objective & Win conditions:
-   - The Queen serves as the commanding royal piece.
-   - Capturing the opponent's Queen (when they have no other Queens on the board)
-     results in an immediate win for the capturer!
-   - If a player runs out of legal moves on their turn, the opponent wins.
+2. Pawn Elimination & Victory:
+   - The main rule: ALL enemy pawns must be captured to win!
+   - Capturing the opponent's Queen does NOT end the game; play continues!
+   - If White captures all Black pawns while White still has pawns, White wins!
+   - If Black captures all White pawns while Black still has pawns, Black wins!
+   - If all pawns on both sides are eliminated, or only Queens remain, the game ends in a Tie!
    - Standard 50-move rule, threefold repetition, and timer timeouts apply.
 """
 
@@ -52,65 +53,79 @@ class QueenPawnMode(GameMode):
         self._game_over_reason = None
 
     def on_move_executed(self, game_state: GameState, move_result: MoveResult) -> None:
-        """Inspect the executed move for Queen captures or end-of-game conditions."""
-        if move_result.captured_piece and move_result.captured_piece.piece_type == chess.QUEEN:
-            # Check if the opponent has any remaining Queens
-            opp_color = chess.BLACK if move_result.piece_moved.color == chess.WHITE else chess.WHITE
-            opp_queens = list(game_state.board.pieces(chess.QUEEN, opp_color))
-            if len(opp_queens) == 0:
-                self._winner = move_result.piece_moved.color
-                winner_name = "White" if self._winner == chess.WHITE else "Black"
-                self._game_over_reason = f"Queen Captured! {winner_name} wins!"
+        """Inspect the executed move for pawn elimination and game-ending conditions."""
+        # Queen captures do NOT end the game. Check overall game status.
+        if self.is_game_over(game_state):
+            if self._winner is not None:
                 move_result.is_checkmate = True
-
-        # Check if the opponent now has no legal moves
-        if not self._winner:
-            turn = game_state.board.turn
-            if not any(game_state.board.generate_legal_moves()):
-                self._winner = chess.BLACK if turn == chess.WHITE else chess.WHITE
-                w_name = "Black" if self._winner == chess.BLACK else "White"
-                l_name = "White" if turn == chess.WHITE else "Black"
-                self._game_over_reason = f"{l_name} has no legal moves! {w_name} wins"
-                move_result.is_checkmate = True
+            else:
+                move_result.is_draw = True
+                move_result.draw_reason = self._game_over_reason
 
     def is_game_over(self, game_state: GameState) -> bool:
-        """Return True if either side has lost their Queen(s) or cannot make a legal move."""
-        if self._winner is not None:
+        """
+        Game ends when:
+        1. All pawns of one player are captured (the player with pawns remaining wins).
+        2. Only Queens remain on the board (both sides have 0 pawns) -> Tie / Draw.
+        3. A player has no legal moves left on their turn.
+        4. Standard 50-move rule, threefold repetition, or timeout.
+        """
+        if self._winner is not None or (self._game_over_reason is not None and "Tie" in self._game_over_reason):
             return True
 
+        w_pawns = list(game_state.board.pieces(chess.PAWN, chess.WHITE))
+        b_pawns = list(game_state.board.pieces(chess.PAWN, chess.BLACK))
         w_queens = list(game_state.board.pieces(chess.QUEEN, chess.WHITE))
         b_queens = list(game_state.board.pieces(chess.QUEEN, chess.BLACK))
 
-        if len(w_queens) == 0:
-            self._winner = chess.BLACK
-            self._game_over_reason = "Queen Captured! Black wins!"
+        # 1. Both sides have 0 pawns -> Tie if only queens remain (or no pawns remain)
+        if len(w_pawns) == 0 and len(b_pawns) == 0:
+            self._winner = None
+            if len(w_queens) > 0 or len(b_queens) > 0:
+                self._game_over_reason = "Tie! Only Queens remain"
+            else:
+                self._game_over_reason = "Tie! All pawns captured"
             return True
 
-        if len(b_queens) == 0:
+        # 2. Black has 0 pawns, White still has pawns -> White wins!
+        if len(b_pawns) == 0 and len(w_pawns) > 0:
             self._winner = chess.WHITE
-            self._game_over_reason = "Queen Captured! White wins!"
+            self._game_over_reason = "White wins! All Black pawns captured"
             return True
 
-        turn = game_state.board.turn
+        # 3. White has 0 pawns, Black still has pawns -> Black wins!
+        if len(w_pawns) == 0 and len(b_pawns) > 0:
+            self._winner = chess.BLACK
+            self._game_over_reason = "Black wins! All White pawns captured"
+            return True
+
+        # 4. Check if player whose turn it is has no legal moves (Stalemate)
         if not any(game_state.board.generate_legal_moves()):
-            self._winner = chess.BLACK if turn == chess.WHITE else chess.WHITE
-            w_name = "Black" if self._winner == chess.BLACK else "White"
-            l_name = "White" if turn == chess.WHITE else "Black"
-            self._game_over_reason = f"{l_name} has no legal moves! {w_name} wins"
+            if len(w_pawns) > len(b_pawns):
+                self._winner = chess.WHITE
+                self._game_over_reason = "White wins by pawn advantage (No legal moves)"
+            elif len(b_pawns) > len(w_pawns):
+                self._winner = chess.BLACK
+                self._game_over_reason = "Black wins by pawn advantage (No legal moves)"
+            else:
+                self._winner = None
+                self._game_over_reason = "Draw by Stalemate (No legal moves)"
             return True
 
         if game_state.board.is_fifty_moves():
+            self._winner = None
             self._game_over_reason = "Draw by 50-Move Rule"
             return True
 
         if game_state.board.is_repetition(3):
+            self._winner = None
             self._game_over_reason = "Draw by Threefold Repetition"
             return True
 
         return False
 
     def winner(self, game_state: GameState) -> Optional[chess.Color]:
-        """Return the winner of the Queen Pawn match, or None."""
+        """Return the winner of the Queen Pawn match, or None if drawn/ongoing."""
         if self._winner is not None:
             return self._winner
         self.is_game_over(game_state)
@@ -124,7 +139,7 @@ class QueenPawnMode(GameMode):
         return self._game_over_reason
 
     def royal_square(self, game_state: GameState, color: chess.Color) -> Optional[chess.Square]:
-        """Return the primary Queen's square for the specified player, if alive."""
+        """Return the Queen's square for the specified player, if alive on the board."""
         queens = list(game_state.board.pieces(chess.QUEEN, color))
         return queens[0] if queens else None
 

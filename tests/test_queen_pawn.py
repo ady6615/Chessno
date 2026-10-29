@@ -84,23 +84,52 @@ class TestQueenPawnGame(unittest.TestCase):
         self.assertIn(chess.E2, d1_dests)
         self.assertIn(chess.F3, d1_dests)
 
-    def test_queen_capture_victory(self):
-        """Capturing the opponent's Queen results in an immediate victory."""
-        # Setup board where White Queen can immediately capture Black Queen
-        self.game.board = chess.Board("3q4/8/8/8/8/8/8/3Q4 w - - 0 1")
+    def test_queen_capture_does_not_end_game(self):
+        """Capturing a Queen does NOT end the game; match continues as long as pawns exist."""
+        # Setup board where White Queen captures Black Queen, but Black still has movable pawns
+        self.game.board = chess.Board("3q4/7p/8/4p3/4P3/8/8/3Q4 w - - 0 1")
         res = self.game.make_move(chess.D1, chess.D8)
         self.assertTrue(res.success)
         self.assertEqual(res.captured_piece, chess.Piece(chess.QUEEN, chess.BLACK))
 
+        # Game is NOT over because pawns remain
+        self.assertFalse(self.game.is_game_over())
+        self.assertIsNone(self.game.winner())
+        self.assertFalse(res.is_checkmate)
+
+    def test_all_black_pawns_captured_white_wins(self):
+        """When all Black pawns are captured while White has pawns left, White wins."""
+        # White has Queen on d1 and pawn on e4. Black has only 1 pawn on d5.
+        self.game.board = chess.Board("8/8/8/3p4/4P3/8/8/3Q4 w - - 0 1")
+        # White Queen captures the last Black pawn on d5
+        res = self.game.make_move(chess.D1, chess.D5)
+        self.assertTrue(res.success)
         self.assertTrue(self.game.is_game_over())
         self.assertEqual(self.game.winner(), chess.WHITE)
-        self.assertIn("Queen Captured!", self.game.game_over_reason())
-        self.assertIn("White wins", self.game.game_over_reason())
+        self.assertIn("White wins! All Black pawns captured", self.game.game_over_reason())
+
+    def test_all_white_pawns_captured_black_wins(self):
+        """When all White pawns are captured while Black has pawns left, Black wins."""
+        # White has 1 pawn on d4, Black has Queen on d8 and 1 pawn on e5
+        self.game.board = chess.Board("3q4/8/8/4p3/3P4/8/8/8 b - - 0 1")
+        # Black Queen captures the last White pawn on d4
+        res = self.game.make_move(chess.D8, chess.D4)
+        self.assertTrue(res.success)
+        self.assertTrue(self.game.is_game_over())
+        self.assertEqual(self.game.winner(), chess.BLACK)
+        self.assertIn("Black wins! All White pawns captured", self.game.game_over_reason())
+
+    def test_only_queens_remain_tie(self):
+        """If only queens remain on the board (both sides have 0 pawns), it is a Tie / Draw."""
+        self.game.board = chess.Board("3q4/8/8/8/8/8/8/3Q4 w - - 0 1")
+        self.assertTrue(self.game.is_game_over())
+        self.assertIsNone(self.game.winner())
+        self.assertIn("Tie! Only Queens remain", self.game.game_over_reason())
 
     def test_pawn_promotion(self):
         """Pawns that reach the opponent's back rank promote properly."""
         # White pawn on a7
-        self.game.board = chess.Board("3q4/P7/8/8/8/8/8/3Q4 w - - 0 1")
+        self.game.board = chess.Board("3q4/P7/8/4p3/8/8/8/3Q4 w - - 0 1")
         self.assertTrue(self.game.needs_promotion(chess.A7, chess.A8))
         res = self.game.make_move(chess.A7, chess.A8, promotion=chess.QUEEN)
         self.assertTrue(res.success)
@@ -111,7 +140,7 @@ class TestQueenPawnGame(unittest.TestCase):
     def test_queen_danger_alert(self):
         """Direct threats to the Queen trigger in-check / danger alerts."""
         # Board where Black Queen attacks White Queen on d1
-        self.game.board = chess.Board("8/8/8/8/8/8/8/3q3Q w - - 0 1")
+        self.game.board = chess.Board("8/8/8/4p3/4P3/8/8/3q3Q w - - 0 1")
         self.assertTrue(self.game.is_in_check())
         self.assertTrue(self.mode.is_queen_under_attack(self.game, chess.WHITE))
         self.assertIn("Danger!", self.game.status_summary())

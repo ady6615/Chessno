@@ -683,9 +683,9 @@ class ChessRenderer:
         qp_lines = [
             "• Pawns clash on ranks 4 & 5",
             "• Queens start on d1 & d8",
-            "• Standard chess moves",
-            "• Capture Queen to win!",
-            "• Pawns promote on rank 8/1",
+            "• Capture all pawns to win!",
+            "• Queens can be captured",
+            "• Tie if only Queens remain",
         ]
         for idx, line in enumerate(qp_lines):
             t = self.font_small.render(line, True, TEXT_SECONDARY)
@@ -1202,7 +1202,7 @@ class ChessRenderer:
             mod_title = self.font_subtitle.render("QUEEN PAWN BATTLE", True, (245, 105, 180))
             self.screen.blit(mod_title, (px + 14, 466))
 
-            badge_lbl = self.font_micro.render("QUEEN ELIMINATION RULES", True, TEXT_MUTED)
+            badge_lbl = self.font_micro.render("PAWN ELIMINATION RULES", True, TEXT_MUTED)
             self.screen.blit(badge_lbl, (px + 14, 484))
 
             # Roster Status Box
@@ -1232,7 +1232,7 @@ class ChessRenderer:
             self.screen.blit(t1, (roster_box.x + 10, roster_box.y + 10))
             self.screen.blit(t2, (roster_box.x + 10, roster_box.y + 32))
 
-            obj_txt = self.font_micro.render("Win: Capture opponent Queen or promote!", True, (245, 185, 110))
+            obj_txt = self.font_micro.render("Win: Capture all pawns! Tie if only Queens", True, (245, 185, 110))
             self.screen.blit(obj_txt, (roster_box.x + 10, roster_box.y + 54))
 
             # Captured Pieces Box
