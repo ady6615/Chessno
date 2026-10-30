@@ -66,12 +66,27 @@ def play_move_sound(result, game_state=None) -> None:
 
 
 def main() -> None:
-    # 1. Initialize Pygame
+    # 1. Initialize Pygame & Window Management
     pygame.init()
-    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    VIRTUAL_WIDTH = WINDOW_WIDTH
+    VIRTUAL_HEIGHT = WINDOW_HEIGHT
+    windowed_size = (VIRTUAL_WIDTH, VIRTUAL_HEIGHT)
+    is_fullscreen: bool = False
+
+    screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
     pygame.display.set_caption("Chessno - Chess + UNO")
+    virtual_screen = pygame.Surface((VIRTUAL_WIDTH, VIRTUAL_HEIGHT))
     clock = pygame.time.Clock()
     FPS = 60
+
+    def toggle_fullscreen() -> None:
+        nonlocal is_fullscreen, screen
+        is_fullscreen = not is_fullscreen
+        if is_fullscreen:
+            # Switch to desktop resolution borderless fullscreen
+            screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        else:
+            screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
 
     # 2. Load Assets & Themes
     board_image, piece_images = Assets.load_assets()
@@ -87,9 +102,9 @@ def main() -> None:
     game_state = GameState(mode=ClassicChessMode())
     ChessMatrix.set_active_game_state(game_state)
 
-    # 4. Initialize Renderer
+    # 4. Initialize Renderer (Draws directly to high-res virtual_screen)
     renderer = ChessRenderer(
-        screen=screen,
+        screen=virtual_screen,
         board_x=BOARD_X,
         board_y=BOARD_Y,
         square_size=SQUARE_SIZE,
@@ -158,7 +173,23 @@ def main() -> None:
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
-        mouse_pos = pygame.mouse.get_pos()
+
+        # Calculate aspect-ratio preserving display scaling geometry
+        disp_w, disp_h = screen.get_size()
+        scale = min(disp_w / VIRTUAL_WIDTH, disp_h / VIRTUAL_HEIGHT)
+        scaled_w = int(VIRTUAL_WIDTH * scale)
+        scaled_h = int(VIRTUAL_HEIGHT * scale)
+        offset_x = (disp_w - scaled_w) // 2
+        offset_y = (disp_h - scaled_h) // 2
+
+        def screen_to_virtual(pos: Tuple[int, int]) -> Tuple[int, int]:
+            if scale <= 0:
+                return (0, 0)
+            vx = int((pos[0] - offset_x) / scale)
+            vy = int((pos[1] - offset_y) / scale)
+            return max(0, min(VIRTUAL_WIDTH - 1, vx)), max(0, min(VIRTUAL_HEIGHT - 1, vy))
+
+        mouse_pos = screen_to_virtual(pygame.mouse.get_pos())
 
         # Update match chess clock countdown
         if not mode_selector_open and not game_state.is_game_over():
@@ -184,35 +215,48 @@ def main() -> None:
             if event.type == pygame.QUIT:
                 running = False
 
+            elif event.type == pygame.VIDEORESIZE:
+                if not is_fullscreen:
+                    windowed_size = (max(800, event.w), max(600, event.h))
+                    screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
+                continue
+
             # ---------------------------------------------------------
             # MOUSE BUTTON DOWN
             # ---------------------------------------------------------
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                event_pos = screen_to_virtual(event.pos)
+
+                # 0. Fullscreen Button Intercept
+                if renderer.buttons.fullscreen.collidepoint(event_pos):
+                    toggle_fullscreen()
+                    continue
+
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
                     c_rect, u_rect, s_rect, qp_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
-                    if c_rect.collidepoint(event.pos):
+                    if c_rect.collidepoint(event_pos):
                         switch_to_mode("Classic")
-                    elif u_rect.collidepoint(event.pos):
+                    elif u_rect.collidepoint(event_pos):
                         switch_to_mode("Chess + UNO")
-                    elif s_rect.collidepoint(event.pos):
+                    elif s_rect.collidepoint(event_pos):
                         switch_to_mode("Immortal Snail")
-                    elif qp_rect.collidepoint(event.pos):
+                    elif qp_rect.collidepoint(event_pos):
                         switch_to_mode("Queen Pawn")
                     else:
                         t_clicked = False
                         for p_rect, sec in p_rects:
-                            if p_rect.collidepoint(event.pos):
+                            if p_rect.collidepoint(event_pos):
                                 timer.set_time_limit(sec)
                                 Assets.play_sound("move")
                                 t_clicked = True
                                 break
                         if not t_clicked:
-                            if minus_r.collidepoint(event.pos):
+                            if minus_r.collidepoint(event_pos):
                                 timer.adjust_custom_minutes(-1)
                                 Assets.play_sound("move")
-                            elif plus_r.collidepoint(event.pos):
+                            elif plus_r.collidepoint(event_pos):
                                 timer.adjust_custom_minutes(1)
                                 Assets.play_sound("move")
                             else:
@@ -226,7 +270,7 @@ def main() -> None:
                     options = renderer.get_promotion_options(game_state.turn, to_sq, flipped=flipped)
                     option_clicked = False
                     for ptype, btn_rect, _ in options:
-                        if btn_rect.collidepoint(event.pos):
+                        if btn_rect.collidepoint(event_pos):
                             result = game_state.make_move(from_sq, to_sq, promotion=ptype)
                             if result.success:
                                 play_move_sound(result, game_state)
@@ -247,7 +291,7 @@ def main() -> None:
                 # 2b. Game Over Winning Popup Restart Click
                 if game_state.is_game_over() and not mode_selector_open:
                     restart_btn = renderer.get_game_over_restart_rect()
-                    if restart_btn.collidepoint(event.pos):
+                    if restart_btn.collidepoint(event_pos):
                         game_state.reset()
                         timer.reset()
                         selected_square = None
@@ -259,30 +303,30 @@ def main() -> None:
                         continue
 
                 # 3. Check UI Button Clicks
-                if renderer.buttons.mode_select.collidepoint(event.pos):
+                if renderer.buttons.mode_select.collidepoint(event_pos):
                     mode_selector_open = True
                     timer.pause()
                     continue
 
-                if renderer.buttons.timer_select.collidepoint(event.pos):
+                if renderer.buttons.timer_select.collidepoint(event_pos):
                     timer.cycle_preset()
                     Assets.play_sound("move")
                     continue
 
-                if (renderer.buttons.white_clock.collidepoint(event.pos) or renderer.buttons.black_clock.collidepoint(event.pos)) and len(game_state.move_history) == 0:
+                if (renderer.buttons.white_clock.collidepoint(event_pos) or renderer.buttons.black_clock.collidepoint(event_pos)) and len(game_state.move_history) == 0:
                     timer.cycle_preset()
                     Assets.play_sound("move")
                     continue
 
-                if renderer.buttons.prev_theme.collidepoint(event.pos):
+                if renderer.buttons.prev_theme.collidepoint(event_pos):
                     change_theme(-1)
                     continue
 
-                if renderer.buttons.next_theme.collidepoint(event.pos):
+                if renderer.buttons.next_theme.collidepoint(event_pos):
                     change_theme(1)
                     continue
 
-                if renderer.buttons.new_game.collidepoint(event.pos):
+                if renderer.buttons.new_game.collidepoint(event_pos):
                     game_state.reset()
                     timer.reset()
                     selected_square = None
@@ -293,31 +337,31 @@ def main() -> None:
                     Assets.play_sound("game_start")
                     continue
 
-                if renderer.buttons.flip_board.collidepoint(event.pos):
+                if renderer.buttons.flip_board.collidepoint(event_pos):
                     flipped = not flipped
                     if isinstance(game_state.mode, ChessUnoMode):
                         game_state.mode.board_reversed = flipped
                     continue
 
-                if renderer.buttons.sound_toggle.collidepoint(event.pos):
+                if renderer.buttons.sound_toggle.collidepoint(event_pos):
                     Assets.toggle_sound()
                     continue
 
                 # Chess + UNO: Draw Card button or Deck click
                 if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
                     if (
-                        renderer.buttons.draw_card.collidepoint(event.pos)
-                        or renderer.buttons.deck_card.collidepoint(event.pos)
+                        renderer.buttons.draw_card.collidepoint(event_pos)
+                        or renderer.buttons.deck_card.collidepoint(event_pos)
                     ):
                         game_state.mode.trigger_draw(game_state, animate=True)
                         continue
 
                 # Immortal Snail: Target King selection before game start
                 if isinstance(game_state.mode, ImmortalSnailMode) and game_state.mode.total_legal_moves == 0:
-                    if renderer.buttons.target_white.collidepoint(event.pos):
+                    if renderer.buttons.target_white.collidepoint(event_pos):
                         game_state.mode.set_target_color(chess.WHITE)
                         continue
-                    elif renderer.buttons.target_black.collidepoint(event.pos):
+                    elif renderer.buttons.target_black.collidepoint(event_pos):
                         game_state.mode.set_target_color(chess.BLACK)
                         continue
 
@@ -327,7 +371,7 @@ def main() -> None:
                     continue
 
                 clicked_sq = pixel_to_square(
-                    event.pos,
+                    event_pos,
                     flipped=flipped,
                     board_x=BOARD_X,
                     board_y=BOARD_Y,
@@ -378,9 +422,10 @@ def main() -> None:
             # MOUSE BUTTON UP
             # ---------------------------------------------------------
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                event_pos = screen_to_virtual(event.pos)
                 if dragging and drag_start_square is not None:
                     target_sq = pixel_to_square(
-                        event.pos,
+                        event_pos,
                         flipped=flipped,
                         board_x=BOARD_X,
                         board_y=BOARD_Y,
@@ -413,7 +458,16 @@ def main() -> None:
             # KEYBOARD SHORTCUTS
             # ---------------------------------------------------------
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
+                # Fullscreen Shortcuts (F11 or Alt+Enter)
+                if event.key == pygame.K_F11:
+                    toggle_fullscreen()
+                    continue
+
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER) and (event.mod & pygame.KMOD_ALT):
+                    toggle_fullscreen()
+                    continue
+
+                elif event.key == pygame.K_r:
                     game_state.reset()
                     timer.reset()
                     selected_square = None
@@ -461,20 +515,22 @@ def main() -> None:
                     if mode_selector_open:
                         mode_selector_open = False
                         timer.resume()
-                    else:
+                    elif pending_promotion is not None or selected_square is not None or dragging:
                         pending_promotion = None
                         selected_square = None
                         legal_destinations = []
                         dragging = False
                         drag_start_square = None
+                    elif is_fullscreen:
+                        toggle_fullscreen()
 
         # -------------------------------------------------------------
-        # DRAWING ROUTINE
+        # DRAWING ROUTINE (Render directly to high-res virtual_screen)
         # -------------------------------------------------------------
-        screen.fill(BG_COLOR)
+        virtual_screen.fill(BG_COLOR)
 
-        # 1. Chessboard background
-        renderer.draw_board(board_image)
+        # 1. Chessboard background with frame and rank/file coordinates
+        renderer.draw_board(board_image, flipped=flipped)
 
         # 2. Square highlights (legal moves, last move, king in check, selection)
         renderer.draw_highlights(
@@ -525,6 +581,7 @@ def main() -> None:
             flipped=flipped,
             piece_images=piece_images,
             timer=timer,
+            is_fullscreen=is_fullscreen,
         )
 
         # 6b. Winning Title Popup (in the middle of the board with 50% transparency)
@@ -534,6 +591,21 @@ def main() -> None:
         # 7. Start Menu / Mode Selector Modal
         if mode_selector_open:
             renderer.draw_mode_selector_modal(mouse_pos, timer=timer)
+
+        # -------------------------------------------------------------
+        # PRESENTATION (Aspect-ratio preserving scale to display)
+        # -------------------------------------------------------------
+        screen.fill((12, 14, 18))
+
+        if scaled_w < disp_w or scaled_h < disp_h:
+            frame_box = pygame.Rect(offset_x - 1, offset_y - 1, scaled_w + 2, scaled_h + 2)
+            pygame.draw.rect(screen, (36, 42, 54), frame_box, width=1)
+
+        if scaled_w == VIRTUAL_WIDTH and scaled_h == VIRTUAL_HEIGHT:
+            screen.blit(virtual_screen, (offset_x, offset_y))
+        else:
+            scaled_surf = pygame.transform.smoothscale(virtual_screen, (scaled_w, scaled_h))
+            screen.blit(scaled_surf, (offset_x, offset_y))
 
         pygame.display.flip()
 

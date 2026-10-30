@@ -30,22 +30,23 @@ from game_engine import GameState
 from snail_engine import ImmortalSnailMode
 from timer import ChessTimer
 
-# Theme and UI Color Palette
-BG_COLOR = (26, 28, 34)
-PANEL_BG = (35, 38, 46)
-PANEL_CARD_BG = (44, 48, 58)
-PANEL_BORDER = (58, 64, 76)
-TEXT_PRIMARY = (245, 246, 250)
-TEXT_SECONDARY = (165, 172, 185)
-TEXT_MUTED = (115, 122, 135)
-ACCENT_COLOR = (86, 182, 139)       # Mint green
-ACCENT_HOVER = (106, 202, 159)
-CHECK_COLOR = (235, 87, 87)         # Crimson alert
-CHECK_HOVER = (255, 107, 107)
-GOLD_COLOR = (242, 201, 76)         # Highlight gold
-BTN_COLOR = (54, 59, 72)
-BTN_HOVER = (72, 79, 96)
-BTN_BORDER = (82, 90, 108)
+# Theme and UI Color Palette (Modern Slate & Obsidian Dark Theme)
+BG_COLOR = (18, 20, 26)
+PANEL_BG = (25, 28, 36)
+PANEL_CARD_BG = (34, 38, 48)
+PANEL_BORDER = (48, 54, 70)
+TEXT_PRIMARY = (248, 249, 252)
+TEXT_SECONDARY = (168, 176, 194)
+TEXT_MUTED = (118, 126, 142)
+ACCENT_COLOR = (60, 205, 145)       # Mint emerald
+ACCENT_HOVER = (80, 225, 165)
+CHECK_COLOR = (239, 68, 68)         # Alert crimson
+CHECK_HOVER = (248, 113, 113)
+GOLD_COLOR = (251, 191, 36)         # Trophy gold
+CYAN_COLOR = (56, 189, 248)         # Cyan highlight
+BTN_COLOR = (42, 47, 60)
+BTN_HOVER = (58, 65, 82)
+BTN_BORDER = (65, 73, 92)
 
 # UNO Card Colors
 UNO_COLORS = {
@@ -62,7 +63,8 @@ class UIButtons:
         self.panel_x = panel_x
         self.panel_width = panel_width
         
-        # Mode and Timer selector buttons in header
+        # Mode, Timer, and Fullscreen selector buttons in header
+        self.fullscreen = pygame.Rect(panel_x + panel_width - 86, 28, 86, 26)
         self.mode_select = pygame.Rect(panel_x + panel_width - 176, 64, 76, 26)
         self.timer_select = pygame.Rect(panel_x + panel_width - 94, 64, 94, 26)
 
@@ -109,27 +111,36 @@ class ChessRenderer:
         self.panel_x = panel_x
         self.panel_width = panel_width
 
-        # Initialize typography
-        self.font_title = pygame.font.SysFont("arial", 26, bold=True)
-        self.font_winner = pygame.font.SysFont("arial", 38, bold=True)
-        self.font_subtitle = pygame.font.SysFont("arial", 13, bold=True)
-        self.font_header = pygame.font.SysFont("arial", 17, bold=True)
-        self.font_clock = pygame.font.SysFont("arial", 20, bold=True)
-        self.font_normal = pygame.font.SysFont("arial", 15)
-        self.font_small = pygame.font.SysFont("arial", 13)
-        self.font_micro = pygame.font.SysFont("arial", 11)
-        self.font_card_large = pygame.font.SysFont("arial", 46, bold=True)
-        self.font_card_med = pygame.font.SysFont("arial", 22, bold=True)
-        self.font_card_corner = pygame.font.SysFont("arial", 14, bold=True)
+        # Initialize typography with modern system font fallbacks
+        def _get_font(size: int, bold: bool = False):
+            return pygame.font.SysFont("segoe ui,trebuchet ms,arial", size, bold=bold)
+
+        def _get_mono_font(size: int, bold: bool = False):
+            return pygame.font.SysFont("consolas,courier new,segoe ui,arial", size, bold=bold)
+
+        self.font_title = _get_font(25, bold=True)
+        self.font_winner = _get_font(38, bold=True)
+        self.font_subtitle = _get_font(13, bold=True)
+        self.font_header = _get_font(17, bold=True)
+        self.font_clock = _get_mono_font(21, bold=True)
+        self.font_normal = _get_font(15)
+        self.font_small = _get_font(13)
+        self.font_micro = _get_font(11)
+        self.font_coords = _get_font(12, bold=True)
+        self.font_card_large = _get_font(46, bold=True)
+        self.font_card_med = _get_font(22, bold=True)
+        self.font_card_corner = _get_font(14, bold=True)
 
         self.buttons = UIButtons(panel_x, panel_width)
 
         # Pre-create highlight overlays for high performance
         self._surf_selected = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
-        self._surf_selected.fill((255, 220, 0, 85))
+        pygame.draw.rect(self._surf_selected, (255, 215, 0, 75), (0, 0, square_size, square_size))
+        pygame.draw.rect(self._surf_selected, (255, 230, 80, 200), (0, 0, square_size, square_size), width=2)
 
         self._surf_last_move = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
-        self._surf_last_move.fill((65, 205, 120, 65))
+        pygame.draw.rect(self._surf_last_move, (50, 205, 120, 65), (0, 0, square_size, square_size))
+        pygame.draw.rect(self._surf_last_move, (70, 225, 140, 130), (0, 0, square_size, square_size), width=2)
 
         self._surf_check = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
         self._surf_check.fill((235, 60, 60, 110))
@@ -139,9 +150,35 @@ class ChessRenderer:
     # Board & Square Highlights
     # -------------------------------------------------------------------------
 
-    def draw_board(self, board_image: pygame.Surface) -> None:
-        """Render the 8x8 chessboard background sprite."""
+    def draw_board(self, board_image: pygame.Surface, flipped: bool = False) -> None:
+        """Render the 8x8 chessboard background sprite, frame shadow, and algebraic coordinates."""
+        board_w = 8 * self.square_size
+        board_h = 8 * self.square_size
+
+        # 1. Subtle ambient drop shadow around the board
+        shadow_rect = pygame.Rect(self.board_x - 6, self.board_y - 6, board_w + 12, board_h + 12)
+        pygame.draw.rect(self.screen, (10, 12, 16), shadow_rect, border_radius=8)
+
+        # 2. Sleek metallic outer border frame
+        frame_rect = pygame.Rect(self.board_x - 3, self.board_y - 3, board_w + 6, board_h + 6)
+        pygame.draw.rect(self.screen, (46, 52, 68), frame_rect, width=3, border_radius=6)
+
+        # 3. Blit the board background
         self.screen.blit(board_image, (self.board_x, self.board_y))
+
+        # 4. Rank Coordinates (1 to 8) along left margin
+        for row in range(8):
+            rank_num = (row + 1) if flipped else (8 - row)
+            lbl = self.font_coords.render(str(rank_num), True, TEXT_MUTED)
+            cy = self.board_y + row * self.square_size + self.square_size // 2
+            self.screen.blit(lbl, lbl.get_rect(center=(self.board_x - 16, cy)))
+
+        # 5. File Coordinates (a to h) along bottom margin
+        for col in range(8):
+            file_char = chr(ord('h') - col) if flipped else chr(ord('a') + col)
+            lbl = self.font_coords.render(file_char, True, TEXT_MUTED)
+            cx = self.board_x + col * self.square_size + self.square_size // 2
+            self.screen.blit(lbl, lbl.get_rect(center=(cx, self.board_y + board_h + 16)))
 
     def draw_highlights(
         self,
@@ -152,10 +189,10 @@ class ChessRenderer:
     ) -> None:
         """
         Draw all contextual square highlights:
-        - Last move from/to squares
-        - King in check alert
-        - Selected piece square
-        - Legal move indicators (dots for empty squares, target rings for captures)
+        - Last move from/to squares with glowing emerald aura
+        - King in check alert with animated pulsing crimson halo
+        - Selected piece square with luminous golden accent
+        - Legal move indicators (soft anti-aliased glowing dots for empty squares, precision target rings for captures)
         """
         # 1. Last move highlight
         if game_state.last_move:
@@ -165,15 +202,18 @@ class ChessRenderer:
                 )
                 self.screen.blit(self._surf_last_move, rect.topleft)
 
-        # 2. King in check highlight
+        # 2. King in check highlight (dynamic pulse)
         if game_state.is_in_check():
             king_sq = game_state.king_square()
             if king_sq is not None:
                 rect = square_to_rect(
                     king_sq, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
                 )
-                self.screen.blit(self._surf_check, rect.topleft)
-                pygame.draw.rect(self.screen, (240, 50, 50), rect, width=3)
+                pulse = int(28 * abs(math.sin(pygame.time.get_ticks() * 0.005)))
+                check_surf = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+                check_surf.fill((235, 50, 50, 85 + pulse))
+                self.screen.blit(check_surf, rect.topleft)
+                pygame.draw.rect(self.screen, (245, 60, 60), rect, width=3)
 
         # 3. Selected piece highlight
         if selected_square is not None:
@@ -199,14 +239,23 @@ class ChessRenderer:
                         is_ep = True
 
             if target_piece is not None or is_ep:
+                # Precision corner-bracket target capture ring
                 ring_surface = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
-                ring_center = (self.square_size // 2, self.square_size // 2)
-                pygame.draw.circle(ring_surface, (235, 75, 75, 160), ring_center, self.square_size // 2 - 4, width=5)
+                center = (self.square_size // 2, self.square_size // 2)
+                rad = self.square_size // 2 - 5
+                pygame.draw.circle(ring_surface, (239, 68, 68, 175), center, rad, width=4)
+                for angle in [45, 135, 225, 315]:
+                    r = math.radians(angle)
+                    p1 = (center[0] + (rad - 6) * math.cos(r), center[1] + (rad - 6) * math.sin(r))
+                    p2 = (center[0] + (rad + 1) * math.cos(r), center[1] + (rad + 1) * math.sin(r))
+                    pygame.draw.line(ring_surface, (255, 115, 115, 220), p1, p2, width=2)
                 self.screen.blit(ring_surface, rect.topleft)
             else:
+                # Soft anti-aliased glowing move indicator dot
                 dot_surface = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
-                dot_center = (self.square_size // 2, self.square_size // 2)
-                pygame.draw.circle(dot_surface, (80, 220, 140, 175), dot_center, 12)
+                center = (self.square_size // 2, self.square_size // 2)
+                pygame.draw.circle(dot_surface, (74, 222, 128, 70), center, 14)
+                pygame.draw.circle(dot_surface, (74, 222, 128, 210), center, 8)
                 self.screen.blit(dot_surface, rect.topleft)
 
     # -------------------------------------------------------------------------
@@ -1009,6 +1058,7 @@ class ChessRenderer:
         flipped: bool,
         piece_images: Optional[Dict[str, pygame.Surface]] = None,
         timer: Optional[ChessTimer] = None,
+        is_fullscreen: bool = False,
     ) -> None:
         """Render the complete right-hand info panel including clocks, turn status, and modes."""
         panel_rect = pygame.Rect(self.panel_x - 15, 0, self.screen.get_width() - self.panel_x + 15, self.screen.get_height())
@@ -1021,6 +1071,10 @@ class ChessRenderer:
         # 1. Header & Brand
         title = self.font_title.render("CHESSNO", True, TEXT_PRIMARY)
         self.screen.blit(title, (px, 32))
+
+        # Fullscreen Toggle Button in Header
+        fs_label = "Windowed" if is_fullscreen else "Fullscreen"
+        self._draw_button(fs_label, self.buttons.fullscreen, mouse_pos)
 
         is_uno_mode = (game_state.mode.name == "Chess + UNO")
         is_snail_mode = isinstance(game_state.mode, ImmortalSnailMode)
@@ -1054,17 +1108,30 @@ class ChessRenderer:
         w_rect = self.buttons.white_clock
         b_rect = self.buttons.black_clock
 
+        # Calculate material advantage
+        piece_vals = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
+        w_mat = sum(len(game_state.board.pieces(pt, chess.WHITE)) * v for pt, v in piece_vals.items())
+        b_mat = sum(len(game_state.board.pieces(pt, chess.BLACK)) * v for pt, v in piece_vals.items())
+        w_adv = w_mat - b_mat
+
         # White Clock
         w_running = bool(timer and timer.is_running and game_state.turn == chess.WHITE and not game_state.is_game_over())
         w_low = bool(timer and timer.is_low_time(chess.WHITE))
-        w_bg = (55, 30, 30) if (w_running and w_low) else ((32, 48, 42) if w_running else PANEL_CARD_BG)
-        w_border = CHECK_COLOR if (w_running and w_low) else (ACCENT_COLOR if w_running else PANEL_BORDER)
+        w_pulse = int(25 * abs(math.sin(pygame.time.get_ticks() * 0.005))) if w_running else 0
+        w_bg = (58, 28, 28) if (w_running and w_low) else ((28, 48, 38) if w_running else PANEL_CARD_BG)
+        w_border = CHECK_COLOR if (w_running and w_low) else (
+            (min(255, 86 + w_pulse), min(255, 182 + w_pulse), min(255, 139 + w_pulse)) if w_running else PANEL_BORDER
+        )
 
-        pygame.draw.rect(self.screen, w_bg, w_rect, border_radius=6)
-        pygame.draw.rect(self.screen, w_border, w_rect, width=2 if w_running else 1, border_radius=6)
-        pygame.draw.circle(self.screen, (240, 240, 240), (w_rect.x + 12, w_rect.y + 12), 4)
+        pygame.draw.rect(self.screen, w_bg, w_rect, border_radius=7)
+        pygame.draw.rect(self.screen, w_border, w_rect, width=2 if w_running else 1, border_radius=7)
+        pygame.draw.circle(self.screen, (245, 245, 245), (w_rect.x + 12, w_rect.y + 12), 4)
         w_lbl = self.font_micro.render("WHITE", True, TEXT_PRIMARY if w_running else TEXT_MUTED)
         self.screen.blit(w_lbl, (w_rect.x + 20, w_rect.y + 6))
+        if w_adv > 0:
+            adv_txt = self.font_micro.render(f"+{w_adv}", True, GOLD_COLOR)
+            self.screen.blit(adv_txt, (w_rect.right - 28, w_rect.y + 6))
+
         w_time_str = timer.format_time(timer.white_time) if (timer and timer.has_timer) else "Unlimited"
         w_t_color = (255, 120, 120) if (w_running and w_low) else (TEXT_PRIMARY if w_running else TEXT_SECONDARY)
         w_t_font = self.font_clock if (timer and timer.has_timer) else self.font_small
@@ -1074,15 +1141,22 @@ class ChessRenderer:
         # Black Clock
         b_running = bool(timer and timer.is_running and game_state.turn == chess.BLACK and not game_state.is_game_over())
         b_low = bool(timer and timer.is_low_time(chess.BLACK))
-        b_bg = (55, 30, 30) if (b_running and b_low) else ((32, 48, 42) if b_running else PANEL_CARD_BG)
-        b_border = CHECK_COLOR if (b_running and b_low) else (ACCENT_COLOR if b_running else PANEL_BORDER)
+        b_pulse = int(25 * abs(math.sin(pygame.time.get_ticks() * 0.005))) if b_running else 0
+        b_bg = (58, 28, 28) if (b_running and b_low) else ((28, 48, 38) if b_running else PANEL_CARD_BG)
+        b_border = CHECK_COLOR if (b_running and b_low) else (
+            (min(255, 86 + b_pulse), min(255, 182 + b_pulse), min(255, 139 + b_pulse)) if b_running else PANEL_BORDER
+        )
 
-        pygame.draw.rect(self.screen, b_bg, b_rect, border_radius=6)
-        pygame.draw.rect(self.screen, b_border, b_rect, width=2 if b_running else 1, border_radius=6)
+        pygame.draw.rect(self.screen, b_bg, b_rect, border_radius=7)
+        pygame.draw.rect(self.screen, b_border, b_rect, width=2 if b_running else 1, border_radius=7)
         pygame.draw.circle(self.screen, (20, 22, 28), (b_rect.x + 12, b_rect.y + 12), 4)
         pygame.draw.circle(self.screen, (100, 105, 120), (b_rect.x + 12, b_rect.y + 12), 4, width=1)
         b_lbl = self.font_micro.render("BLACK", True, TEXT_PRIMARY if b_running else TEXT_MUTED)
         self.screen.blit(b_lbl, (b_rect.x + 20, b_rect.y + 6))
+        if w_adv < 0:
+            adv_txt = self.font_micro.render(f"+{abs(w_adv)}", True, GOLD_COLOR)
+            self.screen.blit(adv_txt, (b_rect.right - 28, b_rect.y + 6))
+
         b_time_str = timer.format_time(timer.black_time) if (timer and timer.has_timer) else "Unlimited"
         b_t_color = (255, 120, 120) if (b_running and b_low) else (TEXT_PRIMARY if b_running else TEXT_SECONDARY)
         b_t_font = self.font_clock if (timer and timer.has_timer) else self.font_small
@@ -1468,9 +1542,9 @@ class ChessRenderer:
             fourth_line = "• [Left / Right] Switch Theme"
 
         controls = [
-            "• Click piece + click target square",
-            "• Or drag-and-drop piece",
-            "• [R] Restart | [T] Time | [F] Flip",
+            "• Click piece or drag-and-drop",
+            "• [F11] Fullscreen | [F] Flip View",
+            "• [R] Restart | [T] Time | [M] Sound",
             fourth_line,
         ]
         for idx, line in enumerate(controls):
@@ -1489,12 +1563,16 @@ class ChessRenderer:
 
         if accent:
             color = ACCENT_HOVER if hovered else ACCENT_COLOR
-            border_color = (130, 220, 180)
-            text_color = (15, 35, 25)
+            border_color = (140, 235, 195) if hovered else (110, 215, 165)
+            text_color = (12, 30, 20)
         else:
             color = BTN_HOVER if hovered else BTN_COLOR
-            border_color = (110, 120, 140) if hovered else BTN_BORDER
+            border_color = (125, 138, 165) if hovered else BTN_BORDER
             text_color = TEXT_PRIMARY
+
+        # Subtle shadow when hovered
+        if hovered:
+            pygame.draw.rect(self.screen, (10, 12, 16), rect.move(0, 1), border_radius=6)
 
         pygame.draw.rect(self.screen, color, rect, border_radius=6)
         pygame.draw.rect(self.screen, border_color, rect, width=1, border_radius=6)

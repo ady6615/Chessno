@@ -152,6 +152,49 @@ class TestUIRendering(unittest.TestCase):
         restart_btn = self.renderer.draw_game_over_popup(state, mouse_pos=(0, 0))
         self.assertIsNotNone(restart_btn)
 
+    def test_fullscreen_button_presence_and_bounds(self):
+        """Verify that the Fullscreen toggle button exists and is positioned in the panel header."""
+        self.assertTrue(hasattr(self.renderer.buttons, "fullscreen"))
+        fs_rect = self.renderer.buttons.fullscreen
+        self.assertGreaterEqual(fs_rect.x, self.renderer.panel_x)
+        self.assertLessEqual(fs_rect.right, self.renderer.panel_x + self.renderer.panel_width)
+
+    def test_fullscreen_panel_rendering(self):
+        """Verify that panel renders cleanly both in windowed and fullscreen modes."""
+        state = GameState(mode=ClassicChessMode())
+        # Windowed mode
+        self.renderer.draw_panel(
+            game_state=state,
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            mouse_pos=(950, 500),
+            sound_enabled=True,
+            flipped=False,
+            piece_images=self.piece_images,
+            is_fullscreen=False,
+        )
+        # Fullscreen mode
+        self.renderer.draw_panel(
+            game_state=state,
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            mouse_pos=(950, 500),
+            sound_enabled=True,
+            flipped=False,
+            piece_images=self.piece_images,
+            is_fullscreen=True,
+        )
+
+    def test_board_rendering_coordinates(self):
+        """Verify board rendering with algebraic coordinates in standard and flipped views."""
+        # Standard White view
+        self.renderer.draw_board(self.board_img, flipped=False)
+        # Flipped Black view
+        self.renderer.draw_board(self.board_img, flipped=True)
+
 
 if __name__ == "__main__":
     unittest.main()
+
