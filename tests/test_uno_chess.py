@@ -213,7 +213,7 @@ class TestNumberCardMechanics(unittest.TestCase):
 
 
 class TestReverseCard(unittest.TestCase):
-    """Test 180° visual board rotation and coordinate mapping."""
+    """Test Reverse card: 180° visual table rotation, players playing side swapping, and turns."""
 
     def test_reverse_toggles_orientation(self):
         mode = ChessUnoMode()
@@ -234,6 +234,107 @@ class TestReverseCard(unittest.TestCase):
         # Drawing second Reverse toggles back
         mode.board_reversed = False
         self.assertEqual(board_coords_to_square(7, 0, flipped=False), chess.A1)
+
+    def test_reverse_swaps_players_playing_side_and_turn(self):
+        """When Reverse is drawn, player playing side swaps: White plays Black, Black plays White."""
+        mode = ChessUnoMode()
+        state = GameState(mode=mode)
+
+        # Initial turn is White
+        self.assertEqual(state.turn, chess.WHITE)
+        self.assertEqual(mode.active_turn_color, chess.WHITE)
+        self.assertEqual(mode.player_sides["Player 1"], chess.WHITE)
+        self.assertEqual(mode.player_sides["Player 2"], chess.BLACK)
+        self.assertFalse(mode.board_reversed)
+
+        # Player 1 (currently White) draws Reverse card!
+        rev_card = UnoCard(UnoCardType.REVERSE, UnoCardColor.BLUE)
+        mode.apply_drawn_card(state, rev_card)
+
+        # 1. Visual table rotated 180°
+        self.assertTrue(mode.board_reversed)
+
+        # 2. Players playing side swapped: Player 1 now plays Black, Player 2 now plays White
+        self.assertEqual(mode.player_sides["Player 1"], chess.BLACK)
+        self.assertEqual(mode.player_sides["Player 2"], chess.WHITE)
+
+        # 3. Active turn on the board switched to Black so the player who drew Reverse plays with Black pieces
+        self.assertEqual(state.turn, chess.BLACK)
+        self.assertEqual(mode.active_turn_color, chess.BLACK)
+        self.assertEqual(mode.moves_remaining, 1)
+
+        # Player 1 can now make a move with Black pieces (e.g. e7-e5)
+        res = state.make_move(chess.E7, chess.E5)
+        self.assertTrue(res.success)
+
+        # Turn passes to the opponent (Player 2, who is now White)
+        self.assertEqual(state.turn, chess.WHITE)
+        self.assertEqual(mode.active_turn_color, chess.WHITE)
+
+    def test_reverse_singleplayer_bot_side_swap(self):
+        """In singleplayer mode, Reverse swaps human and bot sides and passes turns accurately."""
+        from ai_bot import ChessBotController, BotDifficulty
+
+        mode = ChessUnoMode()
+        state = GameState(mode=mode)
+        bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
+
+        # Wire up callback as in main.py
+        def on_rev(old_c, new_c):
+            bot.swap_sides()
+
+        mode.on_reverse_card = on_rev
+
+        # Initially Human is White, Bot is Black
+        self.assertEqual(bot.player_color, chess.WHITE)
+        self.assertEqual(bot.bot_color, chess.BLACK)
+        self.assertFalse(bot.is_bot_turn(state))
+
+        # Human draws Reverse
+        rev_card = UnoCard(UnoCardType.REVERSE, UnoCardColor.RED)
+        mode.apply_drawn_card(state, rev_card)
+
+        # Human is now Black, Bot is now White!
+        self.assertEqual(bot.player_color, chess.BLACK)
+        self.assertEqual(bot.bot_color, chess.WHITE)
+        self.assertEqual(state.turn, chess.BLACK)
+
+        # It is still Human's turn to move their new Black pieces
+        self.assertFalse(bot.is_bot_turn(state))
+
+        # Human moves e7-e5
+        res = state.make_move(chess.E7, chess.E5)
+        self.assertTrue(res.success)
+
+        # Now it is White's turn, which belongs to the BOT!
+        self.assertEqual(state.turn, chess.WHITE)
+        self.assertTrue(bot.is_bot_turn(state))
+
+    def test_multiple_reverses_continuous_swap(self):
+        """Multiple Reverse cards consecutively flip the board and swap sides back and forth."""
+        mode = ChessUnoMode()
+        state = GameState(mode=mode)
+
+        rev_card = UnoCard(UnoCardType.REVERSE, UnoCardColor.GREEN)
+
+        # First Reverse: White -> Black
+        mode.apply_drawn_card(state, rev_card)
+        self.assertTrue(mode.board_reversed)
+        self.assertEqual(state.turn, chess.BLACK)
+        self.assertEqual(mode.player_sides["Player 1"], chess.BLACK)
+
+        # Move e7-e5 completes the turn, passes to White (Player 2)
+        state.make_move(chess.E7, chess.E5)
+        self.assertEqual(state.turn, chess.WHITE)
+
+        # Second Reverse: Player 2 (currently White) draws Reverse!
+        mode.apply_drawn_card(state, rev_card)
+        # Table flips back to False (original orientation)
+        self.assertFalse(mode.board_reversed)
+        # Turn switches to Black (Player 2 is now Black!)
+        self.assertEqual(state.turn, chess.BLACK)
+        self.assertEqual(mode.player_sides["Player 1"], chess.WHITE)
+        self.assertEqual(mode.player_sides["Player 2"], chess.BLACK)
 
 
 class TestSkipCard(unittest.TestCase):

@@ -827,7 +827,7 @@ class ChessRenderer:
         u_lines = [
             "• Card shuffle & draw",
             "• 1, 2, or 3 moves / turn",
-            "• Reverse board flips",
+            "• Reverse: Swaps sides & flips table",
             "• Skip turns & auto-deck",
         ]
         for idx, line in enumerate(u_lines):
@@ -1325,7 +1325,12 @@ class ChessRenderer:
             turn_str = f"YOUR TURN ({game_state.turn_name.upper()})"
             turn_color = TEXT_PRIMARY
         else:
-            turn_str = "WHITE TO MOVE" if game_state.turn == chess.WHITE else "BLACK TO MOVE"
+            if is_uno_mode and hasattr(game_state.mode, "player_sides"):
+                p1_color = game_state.mode.player_sides.get("Player 1", chess.WHITE)
+                curr_p = "Player 1" if game_state.turn == p1_color else "Player 2"
+                turn_str = f"{curr_p.upper()} ({game_state.turn_name.upper()})"
+            else:
+                turn_str = "WHITE TO MOVE" if game_state.turn == chess.WHITE else "BLACK TO MOVE"
             turn_color = TEXT_PRIMARY if game_state.turn == chess.WHITE else (210, 215, 225)
 
         indicator_bg = (240, 240, 240) if game_state.turn == chess.WHITE else (30, 32, 40)
@@ -1351,6 +1356,10 @@ class ChessRenderer:
             badge_bg = (30, 48, 45)
             dots = "." * (1 + (int(pygame.time.get_ticks() / 250) % 3))
             status_text = f"Bot Thinking{dots} ({meta['name']})"
+        elif is_uno_mode and hasattr(game_state.mode, "current_card") and game_state.mode.current_card and game_state.mode.current_card.card_type.value == "Reverse":
+            badge_color = CYAN_COLOR
+            badge_bg = (20, 50, 60)
+            status_text = "REVERSE: Sides Swapped!"
         elif is_uno_mode and hasattr(game_state.mode, "phase") and game_state.mode.phase.value == "Awaiting Draw":
             badge_color = GOLD_COLOR
             badge_bg = (60, 52, 25)

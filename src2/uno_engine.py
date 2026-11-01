@@ -13,7 +13,7 @@ Contains:
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, Callable
 import random
 import chess
 
@@ -98,7 +98,7 @@ class UnoCard:
         elif self.card_type == UnoCardType.THREE:
             return "3 Consecutive Moves!"
         elif self.card_type == UnoCardType.REVERSE:
-            return "Flips Board 180° + 1 Move"
+            return "Sides Swapped! Board Flips 180° + 1 Move"
         elif self.card_type == UnoCardType.SKIP:
             return "Skips Opponent Turn + 1 Move"
         return ""
@@ -179,10 +179,16 @@ class ChessUnoMode(GameMode):
     5. The player completes their allocated chess moves.
     """
 
-    def __init__(self, seed: Optional[int] = None, auto_draw: bool = False):
+    def __init__(
+        self,
+        seed: Optional[int] = None,
+        auto_draw: bool = False,
+        on_reverse_card: Optional[Callable[[chess.Color, chess.Color], None]] = None,
+    ):
         super().__init__(name="Chess + UNO")
         self.deck = UnoDeck(seed=seed)
         self.auto_draw = auto_draw
+        self.on_reverse_card: Optional[Callable[[chess.Color, chess.Color], None]] = on_reverse_card
         self._current_card: Optional[UnoCard] = None
         self.pending_draw_card: Optional[UnoCard] = None
         self.phase: UnoTurnPhase = UnoTurnPhase.AWAITING_DRAW
@@ -191,6 +197,7 @@ class ChessUnoMode(GameMode):
         self.moves_completed: int = 0
         self.skips_queued: Dict[chess.Color, int] = {chess.WHITE: 0, chess.BLACK: 0}
         self.board_reversed: bool = False
+        self.player_sides: Dict[str, chess.Color] = {"Player 1": chess.WHITE, "Player 2": chess.BLACK}
         self.status_message: str = "Chess + UNO initialized"
         self.skip_alert_message: Optional[str] = None
 
@@ -220,6 +227,7 @@ class ChessUnoMode(GameMode):
         self.moves_completed = 0
         self.skips_queued = {chess.WHITE: 0, chess.BLACK: 0}
         self.board_reversed = False
+        self.player_sides = {"Player 1": chess.WHITE, "Player 2": chess.BLACK}
         self.skip_alert_message = None
         self.start_turn(game_state)
 
@@ -326,7 +334,31 @@ class ChessUnoMode(GameMode):
 
         if card.card_type == UnoCardType.REVERSE:
             self.board_reversed = not self.board_reversed
-            self.status_message = f"{color_name} drew Reverse! Board rotated."
+            old_color = self.active_turn_color
+            new_color = chess.BLACK if old_color == chess.WHITE else chess.WHITE
+
+            # Switch the active turn on the board and in UNO mode so the player moves their new color pieces!
+            game_state.board.turn = new_color
+            self.active_turn_color = new_color
+
+            # Swap queued skips so any pending skips follow the swapped sides
+            self.skips_queued[chess.WHITE], self.skips_queued[chess.BLACK] = (
+                self.skips_queued[chess.BLACK],
+                self.skips_queued[chess.WHITE],
+            )
+
+            # Swap player sides tracking in 2-player local mode
+            self.player_sides["Player 1"], self.player_sides["Player 2"] = (
+                self.player_sides["Player 2"],
+                self.player_sides["Player 1"],
+            )
+
+            old_name = "White" if old_color == chess.WHITE else "Black"
+            new_name = "Black" if old_color == chess.WHITE else "White"
+            self.status_message = f"Reverse! Sides swapped: {old_name} now plays {new_name}!"
+
+            if self.on_reverse_card is not None:
+                self.on_reverse_card(old_color, new_color)
         elif card.card_type == UnoCardType.SKIP:
             opponent = chess.BLACK if self.active_turn_color == chess.WHITE else chess.WHITE
             self.skips_queued[opponent] += 1

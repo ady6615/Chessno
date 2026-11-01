@@ -127,12 +127,35 @@ def main() -> None:
 
     Assets.play_sound("game_start")
 
+    def handle_uno_reverse(old_turn: chess.Color, new_turn: chess.Color) -> None:
+        nonlocal flipped, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion
+        # 1. Swap sides in singleplayer bot mode
+        if bot_controller.enabled:
+            bot_controller.swap_sides()
+
+        # 2. Sync visual table rotation with UnoMode state
+        if isinstance(game_state.mode, ChessUnoMode):
+            flipped = game_state.mode.board_reversed
+
+        # 3. Switch active timer clock to match the new turn
+        if timer.has_timer and timer.started:
+            timer.switch_turn(game_state.turn)
+
+        # 4. Clear interactive drag/selection states
+        selected_square = None
+        legal_destinations = []
+        dragging = False
+        drag_start_square = None
+        pending_promotion = None
+
     def switch_to_mode(mode_name: str) -> None:
         nonlocal current_mode_name, game_state, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion, flipped, mode_selector_open
         bot_controller.cancel_thinking()
         if mode_name == "Chess + UNO":
             current_mode_name = "Chess + UNO"
-            uno_mode = ChessUnoMode()
+            uno_mode = ChessUnoMode(on_reverse_card=handle_uno_reverse)
+            if bot_controller.player_color == chess.BLACK:
+                uno_mode.board_reversed = True
             game_state = GameState(mode=uno_mode)
             flipped = uno_mode.board_reversed
         elif mode_name == "Immortal Snail":
