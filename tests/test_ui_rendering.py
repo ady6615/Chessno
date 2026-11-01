@@ -194,6 +194,47 @@ class TestUIRendering(unittest.TestCase):
         # Flipped Black view
         self.renderer.draw_board(self.board_img, flipped=True)
 
+    def test_bot_ui_buttons_and_modal_rects(self):
+        """Verify bot buttons exist on UIButtons and modal rects function properly."""
+        from ai_bot import ChessBotController, BotDifficulty
+        self.assertTrue(hasattr(self.renderer.buttons, "bot_toggle"))
+        self.assertTrue(hasattr(self.renderer.buttons, "bot_difficulty"))
+        self.assertTrue(hasattr(self.renderer.buttons, "bot_quick_toggle"))
+
+        # Check AI modal rects
+        vs_bot, vs_local, diffs, sides, start_btn = self.renderer.get_mode_selector_ai_rects()
+        self.assertIsNotNone(vs_bot)
+        self.assertIsNotNone(vs_local)
+        self.assertEqual(len(diffs), 4)
+        self.assertEqual(len(sides), 3)
+        self.assertIsNotNone(start_btn)
+
+    def test_bot_panel_and_modal_rendering(self):
+        """Verify panel and modal render cleanly with bot controller."""
+        from ai_bot import ChessBotController, BotDifficulty
+        bot_ctrl = ChessBotController(difficulty=BotDifficulty.INTERMEDIATE)
+        state = GameState(mode=ClassicChessMode())
+
+        # Test panel with bot controller
+        self.renderer.draw_panel(
+            game_state=state,
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            mouse_pos=(950, 500),
+            sound_enabled=True,
+            flipped=False,
+            piece_images=self.piece_images,
+            bot_controller=bot_ctrl,
+        )
+
+        # Test modal with bot controller
+        mode_rects = self.renderer.draw_mode_selector_modal(
+            mouse_pos=(600, 400),
+            bot_controller=bot_ctrl,
+        )
+        self.assertEqual(len(mode_rects), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

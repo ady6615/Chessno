@@ -15,10 +15,12 @@ Features:
 """
 
 import sys
+import random
 from pathlib import Path
 from typing import Optional, Tuple, List
 import pygame
 import chess
+from ai_bot import ChessBotController, BotDifficulty
 
 # Ensure local imports resolve when executed directly or via root
 BASE_DIR = Path(__file__).resolve().parent
@@ -114,6 +116,7 @@ def main() -> None:
 
     # 5. UI and Interaction State
     timer = ChessTimer(time_limit_seconds=300)
+    bot_controller = ChessBotController(difficulty=BotDifficulty.CASUAL)
     mode_selector_open: bool = False
     selected_square: Optional[chess.Square] = None
     legal_destinations: List[chess.Square] = []
@@ -126,6 +129,7 @@ def main() -> None:
 
     def switch_to_mode(mode_name: str) -> None:
         nonlocal current_mode_name, game_state, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion, flipped, mode_selector_open
+        bot_controller.cancel_thinking()
         if mode_name == "Chess + UNO":
             current_mode_name = "Chess + UNO"
             uno_mode = ChessUnoMode()
@@ -135,17 +139,17 @@ def main() -> None:
             current_mode_name = "Immortal Snail"
             snail_mode = ImmortalSnailMode()
             game_state = GameState(mode=snail_mode)
-            flipped = False
+            flipped = (bot_controller.player_color == chess.BLACK)
         elif mode_name in ("Queen Pawn", "Queen Pawn Game"):
             current_mode_name = "Queen Pawn"
             qp_mode = QueenPawnMode()
             game_state = GameState(mode=qp_mode)
-            flipped = False
+            flipped = (bot_controller.player_color == chess.BLACK)
         else:
             current_mode_name = "Classic"
             classic_mode = ClassicChessMode()
             game_state = GameState(mode=classic_mode)
-            flipped = False
+            flipped = (bot_controller.player_color == chess.BLACK)
 
         ChessMatrix.set_active_game_state(game_state)
         selected_square = None
@@ -202,6 +206,23 @@ def main() -> None:
                 dragging = False
                 drag_start_square = None
                 pending_promotion = None
+        # AI Bot Thinking & Move Execution (Singleplayer mode)
+        if not mode_selector_open and not game_state.is_game_over() and bot_controller.is_bot_turn(game_state):
+            bot_move, trigger_draw = bot_controller.update(dt, game_state)
+            if trigger_draw:
+                game_state.mode.trigger_draw(game_state, animate=True)
+            elif bot_move is not None:
+                result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=bot_move.promotion)
+                if result.success:
+                    play_move_sound(result, game_state)
+                    timer.switch_turn(game_state.turn)
+                    if not timer.started and timer.has_timer and not game_state.is_game_over():
+                        timer.start(game_state.turn)
+                selected_square = None
+                legal_destinations = []
+                dragging = False
+                drag_start_square = None
+                pending_promotion = None
 
         # In Chess + UNO mode, advance shuffle animation
         if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.SHUFFLING:
@@ -236,6 +257,8 @@ def main() -> None:
                 if mode_selector_open:
                     c_rect, u_rect, s_rect, qp_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
+                    vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
+
                     if c_rect.collidepoint(event_pos):
                         switch_to_mode("Classic")
                     elif u_rect.collidepoint(event_pos):
@@ -244,24 +267,56 @@ def main() -> None:
                         switch_to_mode("Immortal Snail")
                     elif qp_rect.collidepoint(event_pos):
                         switch_to_mode("Queen Pawn")
+                    elif vs_bot_r.collidepoint(event_pos):
+                        bot_controller.enabled = True
+                        Assets.play_sound("move")
+                    elif vs_local_r.collidepoint(event_pos):
+                        bot_controller.enabled = False
+                        Assets.play_sound("move")
+                    elif side_rects[0].collidepoint(event_pos):  # White
+                        bot_controller.set_player_color(chess.WHITE)
+                        flipped = False
+                        Assets.play_sound("move")
+                    elif side_rects[1].collidepoint(event_pos):  # Random
+                        c = random.choice([chess.WHITE, chess.BLACK])
+                        bot_controller.set_player_color(c)
+                        flipped = (c == chess.BLACK)
+                        Assets.play_sound("move")
+                    elif side_rects[2].collidepoint(event_pos):  # Black
+                        bot_controller.set_player_color(chess.BLACK)
+                        flipped = True
+                        Assets.play_sound("move")
+                    elif start_game_r.collidepoint(event_pos):
+                        mode_selector_open = False
+                        timer.resume()
+                        Assets.play_sound("game_start")
                     else:
-                        t_clicked = False
-                        for p_rect, sec in p_rects:
-                            if p_rect.collidepoint(event_pos):
-                                timer.set_time_limit(sec)
+                        d_clicked = False
+                        for d_r, diff in diff_rects:
+                            if d_r.collidepoint(event_pos):
+                                bot_controller.set_difficulty(diff)
+                                bot_controller.enabled = True
                                 Assets.play_sound("move")
-                                t_clicked = True
+                                d_clicked = True
                                 break
-                        if not t_clicked:
-                            if minus_r.collidepoint(event_pos):
-                                timer.adjust_custom_minutes(-1)
-                                Assets.play_sound("move")
-                            elif plus_r.collidepoint(event_pos):
-                                timer.adjust_custom_minutes(1)
-                                Assets.play_sound("move")
-                            else:
-                                mode_selector_open = False
-                                timer.resume()
+                        if not d_clicked:
+                            t_clicked = False
+                            for p_rect, sec in p_rects:
+                                if p_rect.collidepoint(event_pos):
+                                    timer.set_time_limit(sec)
+                                    Assets.play_sound("move")
+                                    t_clicked = True
+                                    break
+                            if not t_clicked:
+                                if minus_r.collidepoint(event_pos):
+                                    timer.adjust_custom_minutes(-1)
+                                    Assets.play_sound("move")
+                                elif plus_r.collidepoint(event_pos):
+                                    timer.adjust_custom_minutes(1)
+                                    Assets.play_sound("move")
+                                else:
+                                    mode_selector_open = False
+                                    timer.resume()
                     continue
 
                 # 2. Promotion Modal Intercept
@@ -292,6 +347,7 @@ def main() -> None:
                 if game_state.is_game_over() and not mode_selector_open:
                     restart_btn = renderer.get_game_over_restart_rect()
                     if restart_btn.collidepoint(event_pos):
+                        bot_controller.cancel_thinking()
                         game_state.reset()
                         timer.reset()
                         selected_square = None
@@ -299,6 +355,8 @@ def main() -> None:
                         dragging = False
                         drag_start_square = None
                         pending_promotion = None
+                        if bot_controller.player_color == chess.BLACK:
+                            flipped = True
                         Assets.play_sound("game_start")
                         continue
 
@@ -306,6 +364,16 @@ def main() -> None:
                 if renderer.buttons.mode_select.collidepoint(event_pos):
                     mode_selector_open = True
                     timer.pause()
+                    continue
+
+                if renderer.buttons.bot_toggle.collidepoint(event_pos):
+                    bot_controller.toggle_enabled()
+                    Assets.play_sound("move")
+                    continue
+
+                if renderer.buttons.bot_difficulty.collidepoint(event_pos) or renderer.buttons.bot_quick_toggle.collidepoint(event_pos):
+                    bot_controller.cycle_difficulty(1)
+                    Assets.play_sound("move")
                     continue
 
                 if renderer.buttons.timer_select.collidepoint(event_pos):
@@ -327,6 +395,7 @@ def main() -> None:
                     continue
 
                 if renderer.buttons.new_game.collidepoint(event_pos):
+                    bot_controller.cancel_thinking()
                     game_state.reset()
                     timer.reset()
                     selected_square = None
@@ -334,6 +403,8 @@ def main() -> None:
                     dragging = False
                     drag_start_square = None
                     pending_promotion = None
+                    if bot_controller.player_color == chess.BLACK:
+                        flipped = True
                     Assets.play_sound("game_start")
                     continue
 
@@ -368,6 +439,10 @@ def main() -> None:
                 # 4. Board Square Click
                 # In Chess + UNO mode, restrict piece interaction until card is drawn and revealed
                 if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase != UnoTurnPhase.CARD_ACTIVE:
+                    continue
+
+                # Block player piece interaction when it is the AI Bot's turn
+                if bot_controller.is_bot_turn(game_state):
                     continue
 
                 clicked_sq = pixel_to_square(
@@ -423,6 +498,11 @@ def main() -> None:
             # ---------------------------------------------------------
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 event_pos = screen_to_virtual(event.pos)
+                if bot_controller.is_bot_turn(game_state):
+                    dragging = False
+                    drag_start_square = None
+                    continue
+
                 if dragging and drag_start_square is not None:
                     target_sq = pixel_to_square(
                         event_pos,
@@ -468,6 +548,7 @@ def main() -> None:
                     continue
 
                 elif event.key == pygame.K_r:
+                    bot_controller.cancel_thinking()
                     game_state.reset()
                     timer.reset()
                     selected_square = None
@@ -475,7 +556,13 @@ def main() -> None:
                     dragging = False
                     drag_start_square = None
                     pending_promotion = None
+                    if bot_controller.player_color == chess.BLACK:
+                        flipped = True
                     Assets.play_sound("game_start")
+
+                elif event.key == pygame.K_b:
+                    bot_controller.cycle_difficulty(1)
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_t:
                     timer.cycle_preset()
@@ -496,7 +583,11 @@ def main() -> None:
                     Assets.toggle_sound()
 
                 elif event.key == pygame.K_SPACE:
-                    if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
+                    if mode_selector_open:
+                        mode_selector_open = False
+                        timer.resume()
+                        Assets.play_sound("game_start")
+                    elif isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
                         game_state.mode.trigger_draw(game_state, animate=True)
 
                 elif event.key == pygame.K_1 and mode_selector_open:
@@ -582,6 +673,7 @@ def main() -> None:
             piece_images=piece_images,
             timer=timer,
             is_fullscreen=is_fullscreen,
+            bot_controller=bot_controller,
         )
 
         # 6b. Winning Title Popup (in the middle of the board with 50% transparency)
@@ -590,7 +682,7 @@ def main() -> None:
 
         # 7. Start Menu / Mode Selector Modal
         if mode_selector_open:
-            renderer.draw_mode_selector_modal(mouse_pos, timer=timer)
+            renderer.draw_mode_selector_modal(mouse_pos, timer=timer, bot_controller=bot_controller)
 
         # -------------------------------------------------------------
         # PRESENTATION (Aspect-ratio preserving scale to display)
