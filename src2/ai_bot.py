@@ -292,19 +292,25 @@ def score_move_mvv_lva(board: chess.Board, move: chess.Move) -> int:
     """
     Score a move for alpha-beta move ordering.
     Orders captures by MVV-LVA (Most Valuable Victim - Least Valuable Attacker),
-    checks, promotions, and quiet moves.
+    promotions, checks, and quiet moves.
     """
     score = 0
     if board.is_capture(move):
         victim = board.piece_at(move.to_square)
         attacker = board.piece_at(move.from_square)
-        victim_val = PIECE_VALUES[victim.piece_type] if victim else 100
-        attacker_val = PIECE_VALUES[attacker.piece_type] if attacker else 100
+        victim_val = PIECE_VALUES.get(victim.piece_type, 100) if victim else 100
+        attacker_val = PIECE_VALUES.get(attacker.piece_type, 100) if attacker else 100
         # High value captures searched first
         score += 10000 + (victim_val * 10 - attacker_val)
 
     if move.promotion:
-        score += 8000 + (PIECE_VALUES.get(move.promotion, 900) * 5)
+        # Give massive priority to Queen promotions; underpromotions get lower priority
+        if move.promotion == chess.QUEEN:
+            score += 15000
+        elif move.promotion == chess.KNIGHT and board.gives_check(move):
+            score += 9000
+        else:
+            score += 4000
 
     if board.gives_check(move):
         score += 2500
@@ -312,8 +318,32 @@ def score_move_mvv_lva(board: chess.Board, move: chess.Move) -> int:
     return score
 
 
-def order_moves(board: chess.Board, moves: List[chess.Move]) -> List[chess.Move]:
+def filter_promotion_moves(moves: List[chess.Move], board: chess.Board) -> List[chess.Move]:
+    """
+    Prune redundant underpromotions (Rook and Bishop).
+    Keep Queen promotion always, and Knight promotion only if it delivers check.
+    Prevents a 4x branching factor explosion on pawn promotions.
+    """
+    has_promo = any(m.promotion is not None for m in moves)
+    if not has_promo:
+        return moves
+
+    filtered = []
+    for m in moves:
+        if m.promotion is not None:
+            if m.promotion == chess.QUEEN:
+                filtered.append(m)
+            elif m.promotion == chess.KNIGHT and board.gives_check(m):
+                filtered.append(m)
+        else:
+            filtered.append(m)
+    return filtered if filtered else moves
+
+
+def order_moves(board: chess.Board, moves: List[chess.Move], filter_underpromotions: bool = True) -> List[chess.Move]:
     """Sort legal moves by tactical priority to maximize alpha-beta pruning."""
+    if filter_underpromotions:
+        moves = filter_promotion_moves(moves, board)
     return sorted(moves, key=lambda m: score_move_mvv_lva(board, m), reverse=True)
 
 
@@ -327,12 +357,24 @@ def quiescence_search(
     beta: int,
     color_mult: int,
     game_mode: Optional[Any] = None,
-    max_depth: int = 4,
+    max_depth: int = 2,
+    deadline: float = float("inf"),
+    stop_check: Optional[threading.Event] = None,
+    nodes_budget: Optional[List[int]] = None,
 ) -> int:
     """
-    Search capturing sequences until quiet position is reached.
-    Prevents the horizon effect where immediate piece blunders are overlooked.
+    Search capturing sequences and Queen promotions until quiet position is reached.
+    Uses strict node & time budgets to prevent freeze on pawn promotion / open queen positions.
     """
+    if stop_check and stop_check.is_set():
+        return 0
+    if time.time() > deadline:
+        return 0
+    if nodes_budget is not None:
+        if nodes_budget[0] <= 0:
+            return evaluate_board(board, game_mode) * color_mult
+        nodes_budget[0] -= 1
+
     stand_pat = evaluate_board(board, game_mode) * color_mult
     if stand_pat >= beta:
         return beta
@@ -342,14 +384,27 @@ def quiescence_search(
     if max_depth <= 0:
         return stand_pat
 
-    # Only explore captures in quiescence
+    # Explore captures in quiescence
     capture_moves = [m for m in board.legal_moves if board.is_capture(m)]
-    capture_moves = order_moves(board, capture_moves)
+    capture_moves = order_moves(board, capture_moves, filter_underpromotions=True)
 
     for move in capture_moves:
         board.push(move)
-        score = -quiescence_search(board, -beta, -alpha, -color_mult, game_mode, max_depth - 1)
+        score = -quiescence_search(
+            board,
+            -beta,
+            -alpha,
+            -color_mult,
+            game_mode,
+            max_depth=max_depth - 1,
+            deadline=deadline,
+            stop_check=stop_check,
+            nodes_budget=nodes_budget,
+        )
         board.pop()
+
+        if (stop_check and stop_check.is_set()) or time.time() > deadline:
+            return alpha
 
         if score >= beta:
             return beta
@@ -368,16 +423,34 @@ def alpha_beta_search(
     game_mode: Optional[Any] = None,
     use_quiescence: bool = True,
     stop_check: Optional[threading.Event] = None,
+    deadline: float = float("inf"),
+    nodes_budget: Optional[List[int]] = None,
 ) -> int:
     """
-    Minimax search with Alpha-Beta pruning and move ordering.
+    Minimax search with Alpha-Beta pruning, move ordering, and deadline enforcement.
     """
     if stop_check and stop_check.is_set():
         return 0
+    if time.time() > deadline:
+        return 0
+    if nodes_budget is not None:
+        if nodes_budget[0] <= 0:
+            return evaluate_board(board, game_mode) * color_mult
+        nodes_budget[0] -= 1
 
     if depth == 0:
         if use_quiescence:
-            return quiescence_search(board, alpha, beta, color_mult, game_mode)
+            return quiescence_search(
+                board,
+                alpha,
+                beta,
+                color_mult,
+                game_mode,
+                max_depth=2,
+                deadline=deadline,
+                stop_check=stop_check,
+                nodes_budget=nodes_budget,
+            )
         return evaluate_board(board, game_mode) * color_mult
 
     if board.is_game_over():
@@ -389,7 +462,7 @@ def alpha_beta_search(
     if not legal_moves:
         return 0
 
-    ordered = order_moves(board, legal_moves)
+    ordered = order_moves(board, legal_moves, filter_underpromotions=True)
 
     for move in ordered:
         board.push(move)
@@ -402,11 +475,13 @@ def alpha_beta_search(
             game_mode,
             use_quiescence,
             stop_check,
+            deadline,
+            nodes_budget,
         )
         board.pop()
 
-        if stop_check and stop_check.is_set():
-            return 0
+        if (stop_check and stop_check.is_set()) or time.time() > deadline:
+            return alpha
 
         if score >= beta:
             return beta  # Beta cutoff / prune
@@ -428,35 +503,46 @@ def select_best_move(
 ) -> Optional[chess.Move]:
     """
     Compute and select the best move according to the given difficulty level.
+    Guarantees responsive timing with strict search deadlines and clean promotion handling.
     """
     legal_moves = list(board.legal_moves)
     if not legal_moves:
         return None
 
-    # Handle automatic Queen promotion for legal moves if needed
+    # Immediate tactical mate-in-1: execute instantly for all levels (except Novice blunder mode)
+    if difficulty != BotDifficulty.NOVICE:
+        for m in legal_moves:
+            board.push(m)
+            if board.is_checkmate():
+                board.pop()
+                return m
+            board.pop()
+
     color_mult = 1 if board.turn == chess.WHITE else -1
     meta = BOT_DIFFICULTY_METADATA[difficulty]
     target_depth = meta["depth"]
-    ordered_moves = order_moves(board, legal_moves)
+    ordered_moves = order_moves(board, legal_moves, filter_underpromotions=True)
+    if not ordered_moves:
+        ordered_moves = legal_moves
+
+    start_time = time.time()
 
     # 1. NOVICE (~800 Elo)
     if difficulty == BotDifficulty.NOVICE:
-        # 40% probability of safe capture or check, 60% probability of casual move
         captures = [m for m in legal_moves if board.is_capture(m)]
         checks = [m for m in legal_moves if board.gives_check(m)]
-        tactics = captures + checks
+        promotions = [m for m in legal_moves if m.promotion == chess.QUEEN]
+        tactics = captures + checks + promotions
 
-        # With 60% probability play a tactical move if available, otherwise random
-        if tactics and random.random() < 0.65:
-            # Pick the best direct capture
+        # With 70% probability play a tactical move (capture, check, or promotion), otherwise random
+        if tactics and random.random() < 0.70:
             best_t = max(tactics, key=lambda m: score_move_mvv_lva(board, m))
             return best_t
 
-        # Avoid suicide king moves if multiple legal moves exist
+        # Avoid obvious immediate checkmate
         filtered_moves = []
         for m in legal_moves:
             board.push(m)
-            # If immediate opponent checkmate, skip unless only option
             if board.is_checkmate():
                 board.pop()
                 continue
@@ -464,21 +550,30 @@ def select_best_move(
             filtered_moves.append(m)
 
         pool = filtered_moves if filtered_moves else legal_moves
-        return random.choice(pool)
+        # If any queen promotion is available, prefer it
+        q_promos = [m for m in pool if m.promotion == chess.QUEEN]
+        if q_promos:
+            return random.choice(q_promos)
+        safe_pool = [m for m in pool if m.promotion in (None, chess.QUEEN)]
+        return random.choice(safe_pool if safe_pool else pool)
 
     # 2. CASUAL (~1200 Elo)
     if difficulty == BotDifficulty.CASUAL:
-        # Depth 2 minimax without quiescence search, plus light random noise (+- 20 cp)
+        deadline = start_time + 0.40
         best_score = -999999
         best_moves = []
-        ordered_moves = order_moves(board, legal_moves)
+        budget = [8000]
+
+        # Prioritize immediate queen promotions if available
+        q_promos = [m for m in ordered_moves if m.promotion == chess.QUEEN]
+        if q_promos and random.random() < 0.90:
+            return q_promos[0]
 
         for move in ordered_moves:
-            if stop_event and stop_event.is_set():
-                return None
+            if (stop_event and stop_event.is_set()) or time.time() > deadline:
+                break
 
             board.push(move)
-            # Search depth 1 for opponent response
             score = -alpha_beta_search(
                 board,
                 depth=1,
@@ -488,30 +583,33 @@ def select_best_move(
                 game_mode=game_mode,
                 use_quiescence=False,
                 stop_check=stop_event,
+                deadline=deadline,
+                nodes_budget=budget,
             )
             board.pop()
 
-            # Add mild noise so it plays varied games
-            noisy_score = score + random.randint(-20, 20)
+            promo_bonus = 30 if move.promotion == chess.QUEEN else 0
+            noisy_score = score + promo_bonus + random.randint(-15, 15)
             if noisy_score > best_score:
                 best_score = noisy_score
                 best_moves = [move]
-            elif abs(noisy_score - best_score) <= 15:
+            elif abs(noisy_score - best_score) <= 12:
                 best_moves.append(move)
 
         return random.choice(best_moves) if best_moves else ordered_moves[0]
 
     # 3. INTERMEDIATE (~1600 Elo)
     if difficulty == BotDifficulty.INTERMEDIATE:
-        # Depth 3 with move ordering & quiescence search
+        deadline = start_time + 0.90
         best_score = -999999
         best_move = ordered_moves[0]
         alpha = -999999
         beta = 999999
+        budget = [20000]
 
         for move in ordered_moves:
-            if stop_event and stop_event.is_set():
-                return None
+            if (stop_event and stop_event.is_set()) or time.time() > deadline:
+                break
 
             board.push(move)
             score = -alpha_beta_search(
@@ -523,26 +621,33 @@ def select_best_move(
                 game_mode=game_mode,
                 use_quiescence=True,
                 stop_check=stop_event,
+                deadline=deadline,
+                nodes_budget=budget,
             )
             board.pop()
 
-            if score > best_score:
-                best_score = score
+            promo_bonus = 25 if move.promotion == chess.QUEEN else 0
+            adj_score = score + promo_bonus
+            if adj_score > best_score:
+                best_score = adj_score
                 best_move = move
                 alpha = max(alpha, score)
+                if score >= 25000:
+                    break
 
         return best_move
 
     # 4. MASTER (~2000+ Elo)
-    # Depth 4 search with full move ordering & quiescence search
+    deadline = start_time + 1.40
     best_score = -999999
     best_move = ordered_moves[0]
     alpha = -999999
     beta = 999999
+    budget = [35000]
 
     for move in ordered_moves:
-        if stop_event and stop_event.is_set():
-            return None
+        if (stop_event and stop_event.is_set()) or time.time() > deadline:
+            break
 
         board.push(move)
         score = -alpha_beta_search(
@@ -554,13 +659,19 @@ def select_best_move(
             game_mode=game_mode,
             use_quiescence=True,
             stop_check=stop_event,
+            deadline=deadline,
+            nodes_budget=budget,
         )
         board.pop()
 
-        if score > best_score:
-            best_score = score
+        promo_bonus = 25 if move.promotion == chess.QUEEN else 0
+        adj_score = score + promo_bonus
+        if adj_score > best_score:
+            best_score = adj_score
             best_move = move
             alpha = max(alpha, score)
+            if score >= 25000:
+                break
 
     return best_move
 
@@ -638,9 +749,6 @@ class ChessBotController:
     def cancel_thinking(self) -> None:
         """Safely terminate any ongoing background search."""
         self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            # Thread is daemon, so setting stop_event will exit cleanly
-            pass
         self._thread = None
         self._chosen_move = None
         self._is_thinking = False
@@ -667,9 +775,14 @@ class ChessBotController:
         stop_ev = self._stop_event
 
         def _worker():
-            move = select_best_move(board_copy, diff, mode_copy, stop_ev)
-            if not stop_ev.is_set():
-                self._chosen_move = move
+            try:
+                move = select_best_move(board_copy, diff, mode_copy, stop_ev)
+                if not stop_ev.is_set():
+                    self._chosen_move = move
+            except Exception:
+                if not stop_ev.is_set():
+                    legal = list(board_copy.legal_moves)
+                    self._chosen_move = random.choice(legal) if legal else None
 
         self._thread = threading.Thread(target=_worker, daemon=True)
         self._thread.start()
@@ -712,6 +825,17 @@ class ChessBotController:
         elapsed = time.time() - self._think_start_time
         if not self._thread.is_alive() and elapsed >= self._target_delay:
             move = self._chosen_move
+            # Safety fallback: ensure a non-None move is returned so bot NEVER gets stuck
+            if move is None and not game_state.is_game_over():
+                all_legal = []
+                for sq in chess.SQUARES:
+                    all_legal.extend(game_state.get_legal_moves_from(sq))
+                if all_legal:
+                    promos = [m for m in all_legal if m.promotion == chess.QUEEN]
+                    caps = [m for m in all_legal if game_state.board.is_capture(m)]
+                    pool = promos or caps or all_legal
+                    move = random.choice(pool)
+
             self._is_thinking = False
             self._thread = None
             self._chosen_move = None

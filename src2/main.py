@@ -207,17 +207,38 @@ def main() -> None:
                 drag_start_square = None
                 pending_promotion = None
         # AI Bot Thinking & Move Execution (Singleplayer mode)
-        if not mode_selector_open and not game_state.is_game_over() and bot_controller.is_bot_turn(game_state):
+        if (
+            not mode_selector_open
+            and pending_promotion is None
+            and not game_state.is_game_over()
+            and bot_controller.is_bot_turn(game_state)
+        ):
             bot_move, trigger_draw = bot_controller.update(dt, game_state)
             if trigger_draw:
                 game_state.mode.trigger_draw(game_state, animate=True)
             elif bot_move is not None:
-                result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=bot_move.promotion)
+                promo = bot_move.promotion
+                if promo is None and game_state.needs_promotion(bot_move.from_square, bot_move.to_square):
+                    promo = chess.QUEEN
+                result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=promo)
                 if result.success:
                     play_move_sound(result, game_state)
                     timer.switch_turn(game_state.turn)
                     if not timer.started and timer.has_timer and not game_state.is_game_over():
                         timer.start(game_state.turn)
+                else:
+                    # Fallback if bot move was rejected by mod-specific constraints
+                    all_valid = []
+                    for sq in chess.SQUARES:
+                        all_valid.extend(game_state.get_legal_moves_from(sq))
+                    if all_valid:
+                        fb_m = random.choice(all_valid)
+                        fb_promo = fb_m.promotion or (chess.QUEEN if game_state.needs_promotion(fb_m.from_square, fb_m.to_square) else None)
+                        res2 = game_state.make_move(fb_m.from_square, fb_m.to_square, promotion=fb_promo)
+                        if res2.success:
+                            play_move_sound(res2, game_state)
+                            timer.switch_turn(game_state.turn)
+
                 selected_square = None
                 legal_destinations = []
                 dragging = False
