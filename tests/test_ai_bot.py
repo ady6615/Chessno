@@ -96,6 +96,47 @@ class TestAIBotLevels(unittest.TestCase):
         self.assertEqual(chosen.to_square, chess.E8)
         self.assertEqual(chosen.promotion, chess.QUEEN)
 
+    def test_master_bot_grandmaster_metadata(self):
+        """Verify Master bot is configured with Grandmaster name and 2500+ Elo badge."""
+        meta = BOT_DIFFICULTY_METADATA[BotDifficulty.MASTER]
+        self.assertEqual(meta["name"], "Grandmaster")
+        self.assertEqual(meta["elo"], "2500+ Elo")
+        self.assertGreaterEqual(meta["depth"], 6)
+
+    def test_master_bot_opening_book_lookup(self):
+        """Master bot must play from the Grandmaster opening book in standard openings."""
+        # Start position
+        board = chess.Board()
+        move = select_best_move(board, BotDifficulty.MASTER)
+        # Should play a top GM opening move: e4, d4, c4, or Nf3
+        self.assertIn(move.uci(), ["e2e4", "d2d4", "c2c4", "g1f3"])
+
+        # Against 1. e4, Master bot as Black should respond with standard book defense (e5, c5, e6, c6, Nf6, d5)
+        board.push_san("e4")
+        move_black = select_best_move(board, BotDifficulty.MASTER)
+        self.assertIn(move_black.uci(), ["c7c5", "e7e5", "e7e6", "c7c6", "g8f6", "d7d5"])
+
+    def test_master_bot_tactical_mate_in_two(self):
+        """Master level bot must resolve tactical mate in 2."""
+        # White can deliver mate in 2: 1. Qh7+ Kf8 2. Qh8#
+        # FEN: 6k1/5ppp/8/8/8/8/5QPP/6K1 w - - 0 1 (simplified mate in 2 setup)
+        # Standard Anastasia/Damiano mate in 2:
+        # FEN: r4rk1/5ppp/8/8/8/8/1Q4PP/6K1 w - - 0 1 -> Let's use a clear mate in 2:
+        # White: Kh1, Qf7, Be6. Black: Kh8, Rg8.
+        # 1. Qf8+ Rxf8 2. Rxf8#
+        board = chess.Board("5r1k/5Q2/4B3/8/8/8/8/7K w - - 0 1")
+        # 1. Qxf8+ Kh7 2. Bf5# or Qg8#
+        move = select_best_move(board, BotDifficulty.MASTER)
+        self.assertEqual(move.uci(), "f7f8")
+
+    def test_master_evaluates_passed_pawn_superiority(self):
+        """Evaluation must value advanced protected passed pawns significantly higher."""
+        # Board 1: White has advanced passed pawn on d6
+        b1 = chess.Board("8/8/3P4/8/8/8/8/4K2k w - - 0 1")
+        # Board 2: White has normal pawn on d2
+        b2 = chess.Board("8/8/8/8/8/8/3P4/4K2k w - - 0 1")
+        self.assertGreater(evaluate_board(b1), evaluate_board(b2))
+
     def test_bot_compatibility_with_queen_pawn_mode(self):
         """Verify bot operates correctly with Queen Pawn game mode heuristics."""
         mode = QueenPawnMode()
