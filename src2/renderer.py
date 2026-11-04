@@ -99,6 +99,81 @@ class UIButtons:
         self.target_black = pygame.Rect(panel_x + 14 + btn_w + 6, 510, btn_w, 28)
 
 
+class GameStartBounceAnimation:
+    """
+    Manages a staggered, multi-bounce spring animation for chess pieces at the start of a new game.
+    Simulates a natural parabolic bounce under gravity with decreasing rebound height and dynamic ground shadows.
+    """
+    def __init__(
+        self,
+        piece_duration: float = 0.50,
+        max_height: float = 38.0,
+        stagger_col: float = 0.025,
+        stagger_pawn: float = 0.04,
+    ):
+        self.piece_duration = piece_duration
+        self.max_height = max_height
+        self.stagger_col = stagger_col
+        self.stagger_pawn = stagger_pawn
+        self.total_duration = 7 * stagger_col + stagger_pawn + piece_duration
+        self.elapsed: float = 0.0
+        self.active: bool = False
+
+    def trigger(self) -> None:
+        """Start or restart the game-start bounce animation."""
+        self.elapsed = 0.0
+        self.active = True
+
+    def update(self, dt: float) -> None:
+        """Advance animation time by dt seconds."""
+        if not self.active:
+            return
+        self.elapsed += max(0.0, dt)
+        if self.elapsed >= self.total_duration:
+            self.active = False
+
+    def cancel(self) -> None:
+        """Immediately stop and dismiss the bounce animation."""
+        self.active = False
+        self.elapsed = 0.0
+
+    @property
+    def is_active(self) -> bool:
+        return self.active
+
+    def get_offset(self, col: int, is_pawn: bool) -> Tuple[float, float]:
+        """
+        Calculate the vertical pixel offset (negative is upward) and ground shadow scale.
+        Returns: (y_offset, shadow_scale)
+        """
+        if not self.active:
+            return 0.0, 1.0
+
+        delay = col * self.stagger_col + (self.stagger_pawn if is_pawn else 0.0)
+        t = self.elapsed - delay
+        if t < 0.0 or t >= self.piece_duration:
+            return 0.0, 1.0
+
+        # Two-stage physics bounce:
+        # Stage 1 (0 to 65% duration): Major leap under gravity
+        # Stage 2 (65% to 100% duration): Secondary rebound
+        t1 = self.piece_duration * 0.65
+        t2 = self.piece_duration - t1
+        h1 = self.max_height
+        h2 = self.max_height * 0.28
+
+        if t < t1:
+            p = t / t1
+            h = 4.0 * h1 * p * (1.0 - p)
+        else:
+            p = (t - t1) / t2
+            h = 4.0 * h2 * p * (1.0 - p)
+
+        y_offset = -h
+        shadow_scale = max(0.45, 1.0 - (h / self.max_height) * 0.45)
+        return y_offset, shadow_scale
+
+
 
 class ChessRenderer:
     """Encapsulates all Pygame drawing logic for the chess interface."""
@@ -153,6 +228,25 @@ class ChessRenderer:
         self._surf_check = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
         self._surf_check.fill((235, 60, 60, 110))
         self._snail_sprite_cache: Dict[int, pygame.Surface] = {}
+
+        # Game-start piece bounce animation manager
+        self.bounce_anim = GameStartBounceAnimation()
+
+    def trigger_start_bounce(self) -> None:
+        """Trigger the piece bounce animation at the start of a new game."""
+        self.bounce_anim.trigger()
+
+    def update_start_bounce(self, dt: float) -> None:
+        """Update piece bounce animation elapsed time."""
+        self.bounce_anim.update(dt)
+
+    def cancel_start_bounce(self) -> None:
+        """Immediately stop piece bounce animation."""
+        self.bounce_anim.cancel()
+
+    def is_bounce_animating(self) -> bool:
+        """Return True if pieces are currently in bounce animation."""
+        return self.bounce_anim.is_active
 
     # -------------------------------------------------------------------------
     # Board & Square Highlights
@@ -276,11 +370,15 @@ class ChessRenderer:
         piece_images: Dict[str, pygame.Surface],
         dragging_square: Optional[chess.Square] = None,
         flipped: bool = False,
+        apply_bounce: bool = True,
     ) -> None:
         """
         Draw all chess pieces currently on the board.
         If a piece is being dragged, it is rendered at its square with transparency or suppressed.
+        When game start bounce animation is active, pieces bounce with dynamic ground shadows.
         """
+        is_bouncing = apply_bounce and self.bounce_anim.is_active
+
         for sq in chess.SQUARES:
             piece = game_state.get_piece_at(sq)
             if piece is None:
@@ -307,7 +405,30 @@ class ChessRenderer:
                 ghost.set_alpha(70)
                 self.screen.blit(ghost, draw_pos)
             else:
-                self.screen.blit(image, draw_pos)
+                if is_bouncing:
+                    row, col = square_to_board_coords(sq, flipped=flipped)
+                    is_pawn = (piece.piece_type == chess.PAWN)
+                    y_offset, shadow_scale = self.bounce_anim.get_offset(col=col, is_pawn=is_pawn)
+
+                    if y_offset < -0.5:
+                        rect = square_to_rect(
+                            sq,
+                            flipped=flipped,
+                            board_x=self.board_x,
+                            board_y=self.board_y,
+                            square_size=self.square_size,
+                        )
+                        shadow_w = max(4, int(self.square_size * 0.55 * shadow_scale))
+                        shadow_h = max(2, int(self.square_size * 0.16 * shadow_scale))
+                        shadow_surf = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
+                        shadow_alpha = int(90 * shadow_scale)
+                        pygame.draw.ellipse(shadow_surf, (0, 0, 0, shadow_alpha), (0, 0, shadow_w, shadow_h))
+                        shadow_center = (rect.centerx, rect.bottom - 14)
+                        self.screen.blit(shadow_surf, shadow_surf.get_rect(center=shadow_center))
+
+                    self.screen.blit(image, (draw_pos[0], int(draw_pos[1] + y_offset)))
+                else:
+                    self.screen.blit(image, draw_pos)
 
     def draw_dragged_piece(
         self,
@@ -454,6 +575,10 @@ class ChessRenderer:
                     snail.square, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
                 )
                 spr_rect = snail_sprite.get_rect(center=s_rect.center)
+                if self.bounce_anim.is_active:
+                    _, col = square_to_board_coords(snail.square, flipped=flipped)
+                    y_off, _ = self.bounce_anim.get_offset(col=col, is_pawn=False)
+                    spr_rect.y += int(y_off)
                 self.screen.blit(snail_sprite, spr_rect)
             else:
                 # Off-board spawn point

@@ -126,6 +126,7 @@ def main() -> None:
     pending_promotion: Optional[Tuple[chess.Square, chess.Square]] = None
 
     Assets.play_sound("game_start")
+    renderer.trigger_start_bounce()
 
     def handle_uno_reverse(old_turn: chess.Color, new_turn: chess.Color) -> None:
         nonlocal flipped, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion
@@ -183,6 +184,7 @@ def main() -> None:
         mode_selector_open = False
         timer.reset()
         Assets.play_sound("game_start")
+        renderer.trigger_start_bounce()
 
     def change_theme(direction: int) -> None:
         nonlocal active_pack_index, board_image, piece_images
@@ -200,6 +202,7 @@ def main() -> None:
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
+        renderer.update_start_bounce(dt)
 
         # Calculate aspect-ratio preserving display scaling geometry
         disp_w, disp_h = screen.get_size()
@@ -334,6 +337,7 @@ def main() -> None:
                         mode_selector_open = False
                         timer.resume()
                         Assets.play_sound("game_start")
+                        renderer.trigger_start_bounce()
                     else:
                         d_clicked = False
                         for d_r, diff in diff_rects:
@@ -402,6 +406,7 @@ def main() -> None:
                         if bot_controller.player_color == chess.BLACK:
                             flipped = True
                         Assets.play_sound("game_start")
+                        renderer.trigger_start_bounce()
                         continue
 
                 # 3. Check UI Button Clicks
@@ -450,6 +455,7 @@ def main() -> None:
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
                     Assets.play_sound("game_start")
+                    renderer.trigger_start_bounce()
                     continue
 
                 if renderer.buttons.flip_board.collidepoint(event_pos):
@@ -498,6 +504,8 @@ def main() -> None:
                 )
 
                 if clicked_sq is not None:
+                    if renderer.is_bounce_animating():
+                        renderer.cancel_start_bounce()
                     # Case A: Already had a piece selected
                     if selected_square is not None:
                         # Click-to-move destination?
@@ -603,6 +611,7 @@ def main() -> None:
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
                     Assets.play_sound("game_start")
+                    renderer.trigger_start_bounce()
 
                 elif event.key == pygame.K_b:
                     bot_controller.cycle_difficulty(1)
@@ -631,6 +640,7 @@ def main() -> None:
                         mode_selector_open = False
                         timer.resume()
                         Assets.play_sound("game_start")
+                        renderer.trigger_start_bounce()
                     elif isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
                         game_state.mode.trigger_draw(game_state, animate=True)
 

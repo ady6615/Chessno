@@ -235,6 +235,97 @@ class TestUIRendering(unittest.TestCase):
         )
         self.assertEqual(len(mode_rects), 4)
 
+    def test_game_start_bounce_animation_lifecycle(self):
+        """Verify lifecycle of GameStartBounceAnimation (inactive, trigger, update, complete, cancel)."""
+        from renderer import GameStartBounceAnimation
+        anim = GameStartBounceAnimation(piece_duration=0.5, max_height=40.0)
+        self.assertFalse(anim.is_active)
+
+        # Trigger
+        anim.trigger()
+        self.assertTrue(anim.is_active)
+        self.assertEqual(anim.elapsed, 0.0)
+
+        # Update partially
+        anim.update(0.2)
+        self.assertTrue(anim.is_active)
+        self.assertAlmostEqual(anim.elapsed, 0.2)
+
+        # Cancel
+        anim.cancel()
+        self.assertFalse(anim.is_active)
+        self.assertEqual(anim.elapsed, 0.0)
+
+        # Re-trigger and advance to completion
+        anim.trigger()
+        anim.update(anim.total_duration + 0.1)
+        self.assertFalse(anim.is_active)
+
+    def test_bounce_offset_and_stagger_calculations(self):
+        """Verify vertical offset trajectory, gravity parabola, and staggered timing across columns and pieces."""
+        from renderer import GameStartBounceAnimation
+        anim = GameStartBounceAnimation(piece_duration=0.5, max_height=40.0, stagger_col=0.03, stagger_pawn=0.05)
+
+        # When inactive, offset is 0 and shadow scale is 1.0
+        y_off, shadow_scale = anim.get_offset(col=0, is_pawn=False)
+        self.assertEqual(y_off, 0.0)
+        self.assertEqual(shadow_scale, 1.0)
+
+        anim.trigger()
+        # At t=0.15s: col 0 is actively in mid-air
+        anim.update(0.15)
+        y_col0, s_col0 = anim.get_offset(col=0, is_pawn=False)
+        self.assertLess(y_col0, -5.0)  # Ascended upward
+        self.assertLessEqual(s_col0, 1.0)
+        self.assertGreaterEqual(s_col0, 0.4)
+
+        # col 7 has delay = 7 * 0.03 = 0.21s; at elapsed=0.15s, local t < 0, so still grounded
+        y_col7, s_col7 = anim.get_offset(col=7, is_pawn=False)
+        self.assertEqual(y_col7, 0.0)
+        self.assertEqual(s_col7, 1.0)
+
+    def test_renderer_bounce_integration_and_drawing(self):
+        """Verify ChessRenderer bounce triggering, updating, and drawing pieces with bounce and shadows."""
+        state = GameState(mode=ClassicChessMode())
+        self.renderer.cancel_start_bounce()
+        self.assertFalse(self.renderer.is_bounce_animating())
+
+        # Trigger on renderer
+        self.renderer.trigger_start_bounce()
+        self.assertTrue(self.renderer.is_bounce_animating())
+
+        # Advance into mid-bounce
+        self.renderer.update_start_bounce(0.25)
+        self.assertTrue(self.renderer.is_bounce_animating())
+
+        # draw_pieces with bounce active should execute cleanly without error
+        self.renderer.draw_pieces(
+            game_state=state,
+            piece_images=self.piece_images,
+            flipped=False,
+            apply_bounce=True,
+        )
+
+        # draw_pieces with flipped=True
+        self.renderer.draw_pieces(
+            game_state=state,
+            piece_images=self.piece_images,
+            flipped=True,
+            apply_bounce=True,
+        )
+
+        # Cancel bounce
+        self.renderer.cancel_start_bounce()
+        self.assertFalse(self.renderer.is_bounce_animating())
+
+        # Drawing with bounce inactive renders standard resting pieces
+        self.renderer.draw_pieces(
+            game_state=state,
+            piece_images=self.piece_images,
+            flipped=False,
+            apply_bounce=True,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
