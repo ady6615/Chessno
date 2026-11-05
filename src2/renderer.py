@@ -174,6 +174,150 @@ class GameStartBounceAnimation:
         return y_offset, shadow_scale
 
 
+def ease_in_out_cubic(t: float) -> float:
+    """Smooth S-curve cubic ease-in-out interpolation."""
+    t = max(0.0, min(1.0, t))
+    if t < 0.5:
+        return 4.0 * t * t * t
+    return 1.0 - ((-2.0 * t + 2.0) ** 3) / 2.0
+
+
+class PieceResetReturnAnimation:
+    """
+    Manages smooth return animation of pieces from their post-game positions back to their starting squares.
+    Surviving pieces glide home along curved trajectories, while captured pieces fly back from the panel tray.
+    """
+    def __init__(self, duration: float = 0.58):
+        self.duration = duration
+        self.elapsed: float = 0.0
+        self.active: bool = False
+        self.tracks: List[Dict[str, Any]] = []
+
+    def trigger(
+        self,
+        end_pieces: Dict[chess.Square, chess.Piece],
+        target_pieces: Dict[chess.Square, chess.Piece],
+        flipped: bool,
+        board_x: int,
+        board_y: int,
+        square_size: int,
+        caps_origin: Tuple[int, int],
+        piece_sizes: Dict[str, Tuple[int, int]],
+    ) -> bool:
+        """
+        Calculates optimal flight trajectories for all pieces from their end-game squares
+        back to their initial positions.
+        Returns True if at least one piece moves, False otherwise.
+        """
+        self.tracks.clear()
+        self.elapsed = 0.0
+
+        available: Dict[Tuple[chess.Color, chess.PieceType], List[chess.Square]] = {}
+        for sq, p in end_pieces.items():
+            key = (p.color, p.piece_type)
+            if key not in available:
+                available[key] = []
+            available[key].append(sq)
+
+        sorted_targets = sorted(
+            target_pieces.items(),
+            key=lambda item: 0 if (item[1].color, item[1].piece_type) in available and item[0] in available[(item[1].color, item[1].piece_type)] else 1
+        )
+
+        has_any_movement = False
+
+        for target_sq, target_piece in sorted_targets:
+            key = (target_piece.color, target_piece.piece_type)
+            tf = chess.square_file(target_sq)
+            tr = chess.square_rank(target_sq)
+
+            code = piece_to_code(target_piece)
+            pw, ph = piece_sizes.get(code or "", (80, 80))
+            tx, ty = square_to_piece_center(
+                target_sq, pw, ph, flipped=flipped, board_x=board_x, board_y=board_y, square_size=square_size
+            )
+
+            matched_from_sq: Optional[chess.Square] = None
+            if key in available and available[key]:
+                if target_sq in available[key]:
+                    matched_from_sq = target_sq
+                    available[key].remove(target_sq)
+                else:
+                    best_idx = -1
+                    best_dist = 9999
+                    for idx, from_sq in enumerate(available[key]):
+                        ff = chess.square_file(from_sq)
+                        fr = chess.square_rank(from_sq)
+                        dist = (ff - tf) ** 2 * 8 + (fr - tr) ** 2
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_idx = idx
+                    matched_from_sq = available[key].pop(best_idx)
+
+            if matched_from_sq is not None:
+                sx, sy = square_to_piece_center(
+                    matched_from_sq, pw, ph, flipped=flipped, board_x=board_x, board_y=board_y, square_size=square_size
+                )
+                from_caps = False
+            else:
+                sx, sy = caps_origin
+                from_caps = True
+
+            dx = tx - sx
+            dy = ty - sy
+            dist = math.hypot(dx, dy)
+            has_moved = (dist > 1.0)
+            if has_moved:
+                has_any_movement = True
+
+            arc = min(28.0, dist * 0.08) if has_moved else 0.0
+
+            self.tracks.append({
+                "piece": target_piece,
+                "code": code,
+                "start_x": sx,
+                "start_y": sy,
+                "target_x": tx,
+                "target_y": ty,
+                "from_caps": from_caps,
+                "has_moved": has_moved,
+                "arc_height": arc,
+            })
+
+        if not has_any_movement:
+            self.active = False
+            return False
+
+        self.active = True
+        return True
+
+    def update(self, dt: float) -> bool:
+        """Advance return animation. Returns True when finished."""
+        if not self.active:
+            return False
+        self.elapsed += max(0.0, dt)
+        if self.elapsed >= self.duration:
+            self.active = False
+            return True
+        return False
+
+    def cancel(self) -> None:
+        """Stop and reset the return animation."""
+        self.active = False
+        self.elapsed = 0.0
+        self.tracks.clear()
+
+    @property
+    def is_active(self) -> bool:
+        return self.active
+
+    @property
+    def progress(self) -> float:
+        if not self.active or self.duration <= 0.0:
+            return 1.0
+        return min(1.0, self.elapsed / self.duration)
+
+
 
 class ChessRenderer:
     """Encapsulates all Pygame drawing logic for the chess interface."""
@@ -231,6 +375,8 @@ class ChessRenderer:
 
         # Game-start piece bounce animation manager
         self.bounce_anim = GameStartBounceAnimation()
+        # Post-game piece return-to-initial-position animation manager
+        self.return_anim = PieceResetReturnAnimation()
 
     def trigger_start_bounce(self) -> None:
         """Trigger the piece bounce animation at the start of a new game."""
@@ -247,6 +393,64 @@ class ChessRenderer:
     def is_bounce_animating(self) -> bool:
         """Return True if pieces are currently in bounce animation."""
         return self.bounce_anim.is_active
+
+    def trigger_reset_return(
+        self,
+        end_pieces: Dict[chess.Square, chess.Piece],
+        game_state: GameState,
+        piece_images: Dict[str, pygame.Surface],
+        flipped: bool = False,
+    ) -> bool:
+        """
+        Trigger smooth animation of pieces returning to their initial position after a game restart.
+        If pieces moved, plays the glide animation; otherwise immediately triggers the start bounce.
+        """
+        self.cancel_start_bounce()
+        target_pieces = {
+            sq: game_state.get_piece_at(sq)
+            for sq in chess.SQUARES
+            if game_state.get_piece_at(sq) is not None
+        }
+        piece_sizes = {
+            code: (img.get_width(), img.get_height())
+            for code, img in piece_images.items()
+        }
+        caps_origin = (self.panel_x + 95, 625)
+        started = self.return_anim.trigger(
+            end_pieces=end_pieces,
+            target_pieces=target_pieces,
+            flipped=flipped,
+            board_x=self.board_x,
+            board_y=self.board_y,
+            square_size=self.square_size,
+            caps_origin=caps_origin,
+            piece_sizes=piece_sizes,
+        )
+        if not started:
+            # No pieces needed to move; proceed directly to bounce
+            self.trigger_start_bounce()
+            return False
+        return True
+
+    def update_reset_return(self, dt: float) -> bool:
+        """
+        Update the piece return animation.
+        Automatically triggers start bounce when return animation completes.
+        """
+        if self.return_anim.is_active:
+            finished = self.return_anim.update(dt)
+            if finished:
+                self.trigger_start_bounce()
+                return True
+        return False
+
+    def cancel_reset_return(self) -> None:
+        """Immediately stop piece return animation."""
+        self.return_anim.cancel()
+
+    def is_return_animating(self) -> bool:
+        """Return True if pieces are currently animating back to their initial squares."""
+        return self.return_anim.is_active
 
     # -------------------------------------------------------------------------
     # Board & Square Highlights
@@ -374,9 +578,47 @@ class ChessRenderer:
     ) -> None:
         """
         Draw all chess pieces currently on the board.
-        If a piece is being dragged, it is rendered at its square with transparency or suppressed.
-        When game start bounce animation is active, pieces bounce with dynamic ground shadows.
+        If return-to-initial animation is active, pieces smoothly glide home along their paths.
+        If bounce animation is active, pieces bounce with dynamic ground shadows.
         """
+        if self.return_anim.is_active:
+            p = self.return_anim.progress
+            e = ease_in_out_cubic(p)
+            for track in self.return_anim.tracks:
+                code = track["code"]
+                if not code or code not in piece_images:
+                    continue
+                image = piece_images[code]
+                sx, sy = track["start_x"], track["start_y"]
+                tx, ty = track["target_x"], track["target_y"]
+                cur_x = int(sx + (tx - sx) * e)
+                cur_y = int(sy + (ty - sy) * e)
+
+                # Parabolic vertical lift along flight path
+                lift = int(4.0 * track["arc_height"] * p * (1.0 - p))
+                draw_y = cur_y - lift
+
+                # Draw drop shadow beneath moving piece
+                if track["has_moved"]:
+                    shadow_scale = max(0.4, 1.0 - (lift / 30.0) * 0.45)
+                    shadow_w = max(4, int(self.square_size * 0.55 * shadow_scale))
+                    shadow_h = max(2, int(self.square_size * 0.16 * shadow_scale))
+                    shadow_surf = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
+                    shadow_alpha = int(85 * shadow_scale)
+                    pygame.draw.ellipse(shadow_surf, (0, 0, 0, shadow_alpha), (0, 0, shadow_w, shadow_h))
+                    shadow_center = (cur_x + image.get_width() // 2, cur_y + image.get_height() - 6)
+                    self.screen.blit(shadow_surf, shadow_surf.get_rect(center=shadow_center))
+
+                # Handle fade-in for captured pieces re-entering the board
+                if track["from_caps"] and p < 0.4:
+                    alpha_factor = min(1.0, p / 0.4)
+                    ghost = image.copy()
+                    ghost.set_alpha(int(255 * alpha_factor))
+                    self.screen.blit(ghost, (cur_x, draw_y))
+                else:
+                    self.screen.blit(image, (cur_x, draw_y))
+            return
+
         is_bouncing = apply_bounce and self.bounce_anim.is_active
 
         for sq in chess.SQUARES:

@@ -152,6 +152,7 @@ def main() -> None:
     def switch_to_mode(mode_name: str) -> None:
         nonlocal current_mode_name, game_state, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion, flipped, mode_selector_open
         bot_controller.cancel_thinking()
+        end_pieces = {sq: game_state.get_piece_at(sq) for sq in chess.SQUARES if game_state.get_piece_at(sq) is not None}
         if mode_name == "Chess + UNO":
             current_mode_name = "Chess + UNO"
             uno_mode = ChessUnoMode(on_reverse_card=handle_uno_reverse)
@@ -184,7 +185,7 @@ def main() -> None:
         mode_selector_open = False
         timer.reset()
         Assets.play_sound("game_start")
-        renderer.trigger_start_bounce()
+        renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
 
     def change_theme(direction: int) -> None:
         nonlocal active_pack_index, board_image, piece_images
@@ -202,6 +203,7 @@ def main() -> None:
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
+        renderer.update_reset_return(dt)
         renderer.update_start_bounce(dt)
 
         # Calculate aspect-ratio preserving display scaling geometry
@@ -396,6 +398,7 @@ def main() -> None:
                     restart_btn = renderer.get_game_over_restart_rect()
                     if restart_btn.collidepoint(event_pos):
                         bot_controller.cancel_thinking()
+                        end_pieces = {sq: game_state.get_piece_at(sq) for sq in chess.SQUARES if game_state.get_piece_at(sq) is not None}
                         game_state.reset()
                         timer.reset()
                         selected_square = None
@@ -406,7 +409,7 @@ def main() -> None:
                         if bot_controller.player_color == chess.BLACK:
                             flipped = True
                         Assets.play_sound("game_start")
-                        renderer.trigger_start_bounce()
+                        renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
                         continue
 
                 # 3. Check UI Button Clicks
@@ -445,6 +448,7 @@ def main() -> None:
 
                 if renderer.buttons.new_game.collidepoint(event_pos):
                     bot_controller.cancel_thinking()
+                    end_pieces = {sq: game_state.get_piece_at(sq) for sq in chess.SQUARES if game_state.get_piece_at(sq) is not None}
                     game_state.reset()
                     timer.reset()
                     selected_square = None
@@ -455,7 +459,7 @@ def main() -> None:
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
                     Assets.play_sound("game_start")
-                    renderer.trigger_start_bounce()
+                    renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
                     continue
 
                 if renderer.buttons.flip_board.collidepoint(event_pos):
@@ -504,7 +508,10 @@ def main() -> None:
                 )
 
                 if clicked_sq is not None:
-                    if renderer.is_bounce_animating():
+                    if renderer.is_return_animating():
+                        renderer.cancel_reset_return()
+                        renderer.cancel_start_bounce()
+                    elif renderer.is_bounce_animating():
                         renderer.cancel_start_bounce()
                     # Case A: Already had a piece selected
                     if selected_square is not None:
@@ -601,6 +608,7 @@ def main() -> None:
 
                 elif event.key == pygame.K_r:
                     bot_controller.cancel_thinking()
+                    end_pieces = {sq: game_state.get_piece_at(sq) for sq in chess.SQUARES if game_state.get_piece_at(sq) is not None}
                     game_state.reset()
                     timer.reset()
                     selected_square = None
@@ -611,7 +619,7 @@ def main() -> None:
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
                     Assets.play_sound("game_start")
-                    renderer.trigger_start_bounce()
+                    renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
 
                 elif event.key == pygame.K_b:
                     bot_controller.cycle_difficulty(1)

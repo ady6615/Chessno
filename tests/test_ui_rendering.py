@@ -326,6 +326,109 @@ class TestUIRendering(unittest.TestCase):
             apply_bounce=True,
         )
 
+    def test_piece_reset_return_animation_lifecycle(self):
+        """Verify lifecycle of PieceResetReturnAnimation (trigger, update, finish, cancel)."""
+        from renderer import PieceResetReturnAnimation
+        from coordinates import BOARD_X, BOARD_Y, SQUARE_SIZE
+
+        anim = PieceResetReturnAnimation(duration=0.5)
+        self.assertFalse(anim.is_active)
+
+        state = GameState(mode=ClassicChessMode())
+        # Make a move so pieces have displaced positions
+        state.make_move(chess.E2, chess.E4)
+        end_pieces = {sq: state.get_piece_at(sq) for sq in chess.SQUARES if state.get_piece_at(sq) is not None}
+        state.reset()
+        target_pieces = {sq: state.get_piece_at(sq) for sq in chess.SQUARES if state.get_piece_at(sq) is not None}
+
+        piece_sizes = {code: (img.get_width(), img.get_height()) for code, img in self.piece_images.items()}
+        started = anim.trigger(
+            end_pieces=end_pieces,
+            target_pieces=target_pieces,
+            flipped=False,
+            board_x=BOARD_X,
+            board_y=BOARD_Y,
+            square_size=SQUARE_SIZE,
+            caps_origin=(990, 620),
+            piece_sizes=piece_sizes,
+        )
+        self.assertTrue(started)
+        self.assertTrue(anim.is_active)
+        self.assertEqual(len(anim.tracks), 32)
+
+        # Update partially
+        finished = anim.update(0.25)
+        self.assertFalse(finished)
+        self.assertTrue(anim.is_active)
+        self.assertAlmostEqual(anim.progress, 0.5)
+
+        # Cancel
+        anim.cancel()
+        self.assertFalse(anim.is_active)
+        self.assertEqual(len(anim.tracks), 0)
+
+        # Retrigger and advance to completion
+        anim.trigger(
+            end_pieces=end_pieces,
+            target_pieces=target_pieces,
+            flipped=False,
+            board_x=BOARD_X,
+            board_y=BOARD_Y,
+            square_size=SQUARE_SIZE,
+            caps_origin=(990, 620),
+            piece_sizes=piece_sizes,
+        )
+        finished = anim.update(0.6)
+        self.assertTrue(finished)
+        self.assertFalse(anim.is_active)
+
+    def test_piece_reset_return_renderer_integration(self):
+        """Verify ChessRenderer reset return animation triggering, updating, chaining bounce, and drawing."""
+        state = GameState(mode=ClassicChessMode())
+        # Make moves including a capture
+        state.make_move(chess.E2, chess.E4)
+        state.make_move(chess.D7, chess.D5)
+        state.make_move(chess.E4, chess.D5)
+
+        end_pieces = {sq: state.get_piece_at(sq) for sq in chess.SQUARES if state.get_piece_at(sq) is not None}
+        state.reset()
+
+        # Trigger reset return on renderer
+        started = self.renderer.trigger_reset_return(
+            end_pieces=end_pieces,
+            game_state=state,
+            piece_images=self.piece_images,
+            flipped=False,
+        )
+        self.assertTrue(started)
+        self.assertTrue(self.renderer.is_return_animating())
+        self.assertFalse(self.renderer.is_bounce_animating())
+
+        # Render frame during return animation
+        self.renderer.draw_pieces(
+            game_state=state,
+            piece_images=self.piece_images,
+            flipped=False,
+        )
+
+        # Render frame with flipped=True
+        self.renderer.draw_pieces(
+            game_state=state,
+            piece_images=self.piece_images,
+            flipped=True,
+        )
+
+        # Advance until return animation finishes
+        finished = self.renderer.update_reset_return(0.7)
+        self.assertTrue(finished)
+        self.assertFalse(self.renderer.is_return_animating())
+        # Should have automatically chained into the start bounce animation!
+        self.assertTrue(self.renderer.is_bounce_animating())
+
+        # Clean up
+        self.renderer.cancel_start_bounce()
+        self.assertFalse(self.renderer.is_bounce_animating())
+
 
 if __name__ == "__main__":
     unittest.main()
