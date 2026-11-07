@@ -247,10 +247,13 @@ class GameState:
         promotion: Optional[int] = None,
     ) -> bool:
         """Check if moving between the two squares is legal under all rules."""
-        # Check standard promotion defaulting to Queen if needed
+        # Check standard promotion defaulting to Queen (or mode default) if needed
         promo = promotion
         if promo is None and self.needs_promotion(from_square, to_square):
-            promo = chess.QUEEN
+            if hasattr(self.mode, "auto_promotion_piece") and self.mode.auto_promotion_piece:
+                promo = self.mode.auto_promotion_piece
+            else:
+                promo = chess.QUEEN
 
         move = chess.Move(from_square, to_square, promotion=promo)
         if move not in self.board.legal_moves:
@@ -318,7 +321,10 @@ class GameState:
         is_promo = self.needs_promotion(from_square, to_square)
         promo_type = promotion
         if is_promo and promo_type is None:
-            promo_type = chess.QUEEN
+            if hasattr(self.mode, "auto_promotion_piece") and self.mode.auto_promotion_piece:
+                promo_type = self.mode.auto_promotion_piece
+            else:
+                promo_type = chess.QUEEN
 
         move = chess.Move(from_square, to_square, promotion=promo_type)
 

@@ -41,6 +41,7 @@ from game_engine import GameState, ClassicChessMode
 from uno_engine import ChessUnoMode, UnoTurnPhase
 from snail_engine import ImmortalSnailMode
 from queen_pawn_engine import QueenPawnMode
+from rook_dash_engine import RookDashMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 
@@ -170,6 +171,11 @@ def main() -> None:
             qp_mode = QueenPawnMode()
             game_state = GameState(mode=qp_mode)
             flipped = (bot_controller.player_color == chess.BLACK)
+        elif mode_name in ("Rook Dash", "rook dash"):
+            current_mode_name = "Rook Dash"
+            rd_mode = RookDashMode()
+            game_state = GameState(mode=rd_mode)
+            flipped = (bot_controller.player_color == chess.BLACK)
         else:
             current_mode_name = "Classic"
             classic_mode = ClassicChessMode()
@@ -247,7 +253,7 @@ def main() -> None:
             elif bot_move is not None:
                 promo = bot_move.promotion
                 if promo is None and game_state.needs_promotion(bot_move.from_square, bot_move.to_square):
-                    promo = chess.QUEEN
+                    promo = getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN)
                 result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=promo)
                 if result.success:
                     play_move_sound(result, game_state)
@@ -261,7 +267,7 @@ def main() -> None:
                         all_valid.extend(game_state.get_legal_moves_from(sq))
                     if all_valid:
                         fb_m = random.choice(all_valid)
-                        fb_promo = fb_m.promotion or (chess.QUEEN if game_state.needs_promotion(fb_m.from_square, fb_m.to_square) else None)
+                        fb_promo = fb_m.promotion or (getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN) if game_state.needs_promotion(fb_m.from_square, fb_m.to_square) else None)
                         res2 = game_state.make_move(fb_m.from_square, fb_m.to_square, promotion=fb_promo)
                         if res2.success:
                             play_move_sound(res2, game_state)
@@ -304,7 +310,7 @@ def main() -> None:
 
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect, s_rect, qp_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect, qp_rect, rd_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
 
@@ -316,6 +322,8 @@ def main() -> None:
                         switch_to_mode("Immortal Snail")
                     elif qp_rect.collidepoint(event_pos):
                         switch_to_mode("Queen Pawn")
+                    elif rd_rect.collidepoint(event_pos):
+                        switch_to_mode("Rook Dash")
                     elif vs_bot_r.collidepoint(event_pos):
                         bot_controller.enabled = True
                         Assets.play_sound("move")
@@ -518,7 +526,16 @@ def main() -> None:
                         # Click-to-move destination?
                         if clicked_sq in legal_destinations:
                             if game_state.needs_promotion(selected_square, clicked_sq):
-                                pending_promotion = (selected_square, clicked_sq)
+                                auto_p = getattr(game_state.mode, "auto_promotion_piece", None)
+                                if auto_p is not None:
+                                    result = game_state.make_move(selected_square, clicked_sq, promotion=auto_p)
+                                    if result.success:
+                                        play_move_sound(result, game_state)
+                                        timer.switch_turn(game_state.turn)
+                                    selected_square = None
+                                    legal_destinations = []
+                                else:
+                                    pending_promotion = (selected_square, clicked_sq)
                             else:
                                 result = game_state.make_move(selected_square, clicked_sq)
                                 if result.success:
@@ -575,7 +592,16 @@ def main() -> None:
                     if target_sq is not None and target_sq != drag_start_square:
                         if target_sq in legal_destinations:
                             if game_state.needs_promotion(drag_start_square, target_sq):
-                                pending_promotion = (drag_start_square, target_sq)
+                                auto_p = getattr(game_state.mode, "auto_promotion_piece", None)
+                                if auto_p is not None:
+                                    result = game_state.make_move(drag_start_square, target_sq, promotion=auto_p)
+                                    if result.success:
+                                        play_move_sound(result, game_state)
+                                        timer.switch_turn(game_state.turn)
+                                    selected_square = None
+                                    legal_destinations = []
+                                else:
+                                    pending_promotion = (drag_start_square, target_sq)
                             else:
                                 result = game_state.make_move(drag_start_square, target_sq)
                                 if result.success:
@@ -663,6 +689,9 @@ def main() -> None:
 
                 elif event.key == pygame.K_4 and mode_selector_open:
                     switch_to_mode("Queen Pawn")
+
+                elif event.key == pygame.K_5 and mode_selector_open:
+                    switch_to_mode("Rook Dash")
 
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:

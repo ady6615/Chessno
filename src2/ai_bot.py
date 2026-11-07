@@ -409,6 +409,22 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
                 score += 350
         return score
 
+    # 2. Rook Dash Mode Specialized Evaluation
+    if game_mode and getattr(game_mode, "name", "") == "Rook Dash":
+        w_rooks = len(board.pieces(chess.ROOK, chess.WHITE))
+        b_rooks = len(board.pieces(chess.ROOK, chess.BLACK))
+        w_pawns = len(board.pieces(chess.PAWN, chess.WHITE))
+        b_pawns = len(board.pieces(chess.PAWN, chess.BLACK))
+
+        score = (w_rooks - b_rooks) * 600 + (w_pawns - b_pawns) * 120
+        if board.is_check():
+            score += -100 if board.turn == chess.WHITE else 100
+        for p_sq in board.pieces(chess.PAWN, chess.WHITE):
+            score += (chess.square_rank(p_sq) - 1) * 20
+        for p_sq in board.pieces(chess.PAWN, chess.BLACK):
+            score -= (6 - chess.square_rank(p_sq)) * 20
+        return score
+
     mg_w, mg_b = 0, 0
     eg_w, eg_b = 0, 0
     game_phase = 0
@@ -622,7 +638,7 @@ def score_move_mvv_lva(
 
     score = 0
     if move.promotion:
-        if move.promotion == chess.QUEEN:
+        if move.promotion in (chess.QUEEN, chess.ROOK):
             score += 20000
         elif move.promotion == chess.KNIGHT and board.gives_check(move):
             score += 9500
@@ -653,7 +669,7 @@ def score_move_mvv_lva(
 
 
 def filter_promotion_moves(moves: List[chess.Move], board: chess.Board) -> List[chess.Move]:
-    """Prune redundant underpromotions (Rook and Bishop)."""
+    """Prune redundant underpromotions (Bishop, and non-checking Knight/Rook in standard chess)."""
     has_promo = any(m.promotion is not None for m in moves)
     if not has_promo:
         return moves
@@ -661,7 +677,7 @@ def filter_promotion_moves(moves: List[chess.Move], board: chess.Board) -> List[
     filtered = []
     for m in moves:
         if m.promotion is not None:
-            if m.promotion == chess.QUEEN:
+            if m.promotion in (chess.QUEEN, chess.ROOK):
                 filtered.append(m)
             elif m.promotion == chess.KNIGHT and board.gives_check(m):
                 filtered.append(m)
@@ -1017,7 +1033,11 @@ def select_best_move(
     Compute and select the best move according to the given difficulty level.
     Guarantees responsive timing with strict search deadlines and clean promotion handling.
     """
-    legal_moves = list(board.legal_moves)
+    if game_mode and getattr(game_mode, "name", "") == "Rook Dash":
+        legal_moves = [m for m in board.legal_moves if game_mode.can_move(m, board=board)]
+    else:
+        legal_moves = list(board.legal_moves)
+
     if not legal_moves:
         return None
 
@@ -1036,7 +1056,7 @@ def select_best_move(
     if difficulty == BotDifficulty.NOVICE:
         captures = [m for m in legal_moves if board.is_capture(m)]
         checks = [m for m in legal_moves if board.gives_check(m)]
-        promotions = [m for m in legal_moves if m.promotion == chess.QUEEN]
+        promotions = [m for m in legal_moves if m.promotion in (chess.QUEEN, chess.ROOK)]
         tactics = captures + checks + promotions
 
         # With 70% probability play a tactical move (capture, check, or promotion), otherwise random
@@ -1055,10 +1075,10 @@ def select_best_move(
             filtered_moves.append(m)
 
         pool = filtered_moves if filtered_moves else legal_moves
-        q_promos = [m for m in pool if m.promotion == chess.QUEEN]
+        q_promos = [m for m in pool if m.promotion in (chess.QUEEN, chess.ROOK)]
         if q_promos:
             return random.choice(q_promos)
-        safe_pool = [m for m in pool if m.promotion in (None, chess.QUEEN)]
+        safe_pool = [m for m in pool if m.promotion in (None, chess.QUEEN, chess.ROOK)]
         return random.choice(safe_pool if safe_pool else pool)
 
     # 2. CASUAL (~1200 Elo)
@@ -1070,8 +1090,8 @@ def select_best_move(
 
         ordered_moves = order_moves(board, legal_moves, filter_underpromotions=True)
 
-        # Prioritize immediate queen promotions if available
-        q_promos = [m for m in ordered_moves if m.promotion == chess.QUEEN]
+        # Prioritize immediate queen/rook promotions if available
+        q_promos = [m for m in ordered_moves if m.promotion in (chess.QUEEN, chess.ROOK)]
         if q_promos and random.random() < 0.90:
             return q_promos[0]
 
@@ -1094,7 +1114,7 @@ def select_best_move(
             )
             board.pop()
 
-            promo_bonus = 30 if move.promotion == chess.QUEEN else 0
+            promo_bonus = 30 if move.promotion in (chess.QUEEN, chess.ROOK) else 0
             noisy_score = score + promo_bonus + random.randint(-15, 15)
             if noisy_score > best_score:
                 best_score = noisy_score
@@ -1145,7 +1165,7 @@ def select_best_move(
             )
             board.pop()
 
-            promo_bonus = 25 if move.promotion == chess.QUEEN else 0
+            promo_bonus = 25 if move.promotion in (chess.QUEEN, chess.ROOK) else 0
             adj_score = score + promo_bonus
             if adj_score > best_score:
                 best_score = adj_score
