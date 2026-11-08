@@ -184,6 +184,115 @@ class TestRookDashMode(unittest.TestCase):
         score_equal = evaluate_board(b, game_mode=self.mode)
         self.assertEqual(score_equal, 0)
 
+    def test_rook_dash_animation_lifecycle(self):
+        """Verify RookDashAnimation trigger, progress interpolation, completion, and cancel."""
+        from renderer import RookDashAnimation
+        anim = RookDashAnimation()
+        self.assertFalse(anim.is_active)
+        self.assertEqual(anim.dash_progress, 1.0)
+        self.assertEqual(anim.impact_progress, 0.0)
+
+        # Trigger a dash from a1 to d1
+        anim.trigger(
+            from_sq=chess.A1,
+            to_sq=chess.D1,
+            piece_code="wr",
+            is_capture=False,
+            start_pos=(50, 750),
+            target_pos=(350, 750),
+            flipped=False,
+        )
+        self.assertTrue(anim.is_active)
+        self.assertAlmostEqual(anim.dash_progress, 0.0)
+        self.assertAlmostEqual(anim.impact_progress, 0.0)
+        self.assertEqual(anim.distance_squares, 3)
+
+        # Advance halfway through dash
+        half_dt = anim.dash_duration * 0.5
+        finished = anim.update(half_dt)
+        self.assertFalse(finished)
+        self.assertTrue(anim.is_active)
+        self.assertAlmostEqual(anim.dash_progress, 0.5, delta=0.02)
+        self.assertEqual(anim.impact_progress, 0.0)
+
+        # Advance past dash duration into impact phase
+        anim.update(anim.dash_duration * 0.6)
+        self.assertTrue(anim.is_active)
+        self.assertEqual(anim.dash_progress, 1.0)
+        self.assertGreater(anim.impact_progress, 0.0)
+
+        # Advance past total duration
+        finished = anim.update(anim.impact_duration + 0.05)
+        self.assertTrue(finished)
+        self.assertFalse(anim.is_active)
+
+        # Cancel test
+        anim.trigger(
+            from_sq=chess.A1,
+            to_sq=chess.A8,
+            piece_code="wr",
+            is_capture=True,
+            start_pos=(50, 750),
+            target_pos=(50, 50),
+        )
+        self.assertTrue(anim.is_active)
+        anim.cancel()
+        self.assertFalse(anim.is_active)
+
+    def test_rook_dash_animation_rendering(self):
+        """Verify ChessRenderer handles rook dash animation triggers and drawing cleanly."""
+        import pygame
+        from renderer import ChessRenderer
+        import Assets
+
+        pygame.init()
+        pygame.font.init()
+        surface = pygame.Surface((1200, 900))
+        renderer = ChessRenderer(surface)
+        _, piece_images = Assets.load_assets("Default")
+
+        state = GameState(mode=self.mode)
+        self.assertFalse(renderer.is_dash_animating())
+
+        # Trigger rook dash
+        renderer.trigger_rook_dash(
+            from_sq=chess.A1,
+            to_sq=chess.D1,
+            piece_code="wr",
+            piece_images=piece_images,
+            is_capture=False,
+            flipped=False,
+        )
+        self.assertTrue(renderer.is_dash_animating())
+
+        # Render during dash
+        renderer.draw_pieces(state, piece_images, flipped=False)
+        renderer.draw_rook_dash_animation(piece_images)
+
+        # Advance into impact phase
+        renderer.update_rook_dash(0.18)
+        renderer.draw_rook_dash_animation(piece_images)
+
+        # Advance to completion
+        finished = renderer.update_rook_dash(0.20)
+        self.assertTrue(finished)
+        self.assertFalse(renderer.is_dash_animating())
+
+        # Capture variant with impact sparks
+        renderer.trigger_rook_dash(
+            from_sq=chess.D1,
+            to_sq=chess.D7,
+            piece_code="wr",
+            piece_images=piece_images,
+            is_capture=True,
+            flipped=False,
+        )
+        self.assertTrue(renderer.is_dash_animating())
+        renderer.update_rook_dash(0.18)  # enter impact
+        renderer.draw_rook_dash_animation(piece_images)
+        renderer.cancel_rook_dash()
+        self.assertFalse(renderer.is_dash_animating())
+
 
 if __name__ == "__main__":
     unittest.main()

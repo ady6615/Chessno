@@ -37,7 +37,7 @@ from coordinates import (
     pixel_to_square,
     piece_to_code,
 )
-from game_engine import GameState, ClassicChessMode
+from game_engine import GameState, ClassicChessMode, MoveResult
 from uno_engine import ChessUnoMode, UnoTurnPhase
 from snail_engine import ImmortalSnailMode
 from queen_pawn_engine import QueenPawnMode
@@ -190,8 +190,32 @@ def main() -> None:
         pending_promotion = None
         mode_selector_open = False
         timer.reset()
+        renderer.cancel_rook_dash()
         Assets.play_sound("game_start")
         renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
+
+    def check_and_trigger_rook_dash(
+        moving_piece: Optional[chess.Piece],
+        from_sq: chess.Square,
+        to_sq: chess.Square,
+        result: MoveResult,
+    ) -> None:
+        if (
+            result.success
+            and getattr(game_state.mode, "name", "") == "Rook Dash"
+            and moving_piece is not None
+            and moving_piece.piece_type == chess.ROOK
+        ):
+            pcode = piece_to_code(moving_piece) or ("wr" if moving_piece.color == chess.WHITE else "br")
+            renderer.trigger_rook_dash(
+                from_sq=from_sq,
+                to_sq=to_sq,
+                piece_code=pcode,
+                piece_images=piece_images,
+                is_capture=result.is_capture,
+                flipped=flipped,
+            )
+            Assets.play_sound("dash")
 
     def change_theme(direction: int) -> None:
         nonlocal active_pack_index, board_image, piece_images
@@ -211,6 +235,7 @@ def main() -> None:
         dt = clock.tick(FPS) / 1000.0
         renderer.update_reset_return(dt)
         renderer.update_start_bounce(dt)
+        renderer.update_rook_dash(dt)
 
         # Calculate aspect-ratio preserving display scaling geometry
         disp_w, disp_h = screen.get_size()
@@ -245,6 +270,7 @@ def main() -> None:
             not mode_selector_open
             and pending_promotion is None
             and not game_state.is_game_over()
+            and not renderer.is_dash_animating()
             and bot_controller.is_bot_turn(game_state)
         ):
             bot_move, trigger_draw = bot_controller.update(dt, game_state)
@@ -254,8 +280,10 @@ def main() -> None:
                 promo = bot_move.promotion
                 if promo is None and game_state.needs_promotion(bot_move.from_square, bot_move.to_square):
                     promo = getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN)
+                moving_piece = game_state.get_piece_at(bot_move.from_square)
                 result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=promo)
                 if result.success:
+                    check_and_trigger_rook_dash(moving_piece, bot_move.from_square, bot_move.to_square, result)
                     play_move_sound(result, game_state)
                     timer.switch_turn(game_state.turn)
                     if not timer.started and timer.has_timer and not game_state.is_game_over():
@@ -268,8 +296,10 @@ def main() -> None:
                     if all_valid:
                         fb_m = random.choice(all_valid)
                         fb_promo = fb_m.promotion or (getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN) if game_state.needs_promotion(fb_m.from_square, fb_m.to_square) else None)
+                        fb_piece = game_state.get_piece_at(fb_m.from_square)
                         res2 = game_state.make_move(fb_m.from_square, fb_m.to_square, promotion=fb_promo)
                         if res2.success:
+                            check_and_trigger_rook_dash(fb_piece, fb_m.from_square, fb_m.to_square, res2)
                             play_move_sound(res2, game_state)
                             timer.switch_turn(game_state.turn)
 
@@ -416,6 +446,7 @@ def main() -> None:
                         pending_promotion = None
                         if bot_controller.player_color == chess.BLACK:
                             flipped = True
+                        renderer.cancel_rook_dash()
                         Assets.play_sound("game_start")
                         renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
                         continue
@@ -466,6 +497,7 @@ def main() -> None:
                     pending_promotion = None
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
+                    renderer.cancel_rook_dash()
                     Assets.play_sound("game_start")
                     renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
                     continue
@@ -516,6 +548,8 @@ def main() -> None:
                 )
 
                 if clicked_sq is not None:
+                    if renderer.is_dash_animating():
+                        continue
                     if renderer.is_return_animating():
                         renderer.cancel_reset_return()
                         renderer.cancel_start_bounce()
@@ -537,8 +571,10 @@ def main() -> None:
                                 else:
                                     pending_promotion = (selected_square, clicked_sq)
                             else:
+                                moving_p = game_state.get_piece_at(selected_square)
                                 result = game_state.make_move(selected_square, clicked_sq)
                                 if result.success:
+                                    check_and_trigger_rook_dash(moving_p, selected_square, clicked_sq, result)
                                     play_move_sound(result, game_state)
                                     timer.switch_turn(game_state.turn)
                                 selected_square = None
@@ -603,8 +639,10 @@ def main() -> None:
                                 else:
                                     pending_promotion = (drag_start_square, target_sq)
                             else:
+                                moving_p = game_state.get_piece_at(drag_start_square)
                                 result = game_state.make_move(drag_start_square, target_sq)
                                 if result.success:
+                                    check_and_trigger_rook_dash(moving_p, drag_start_square, target_sq, result)
                                     play_move_sound(result, game_state)
                                     timer.switch_turn(game_state.turn)
                                 selected_square = None
@@ -644,6 +682,7 @@ def main() -> None:
                     pending_promotion = None
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
+                    renderer.cancel_rook_dash()
                     Assets.play_sound("game_start")
                     renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
 

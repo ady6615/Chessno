@@ -318,6 +318,97 @@ class PieceResetReturnAnimation:
         return min(1.0, self.elapsed / self.duration)
 
 
+class RookDashAnimation:
+    """
+    Manages high-speed dashing animations for Rooks in Rook Dash mode.
+    Features:
+    - High-velocity linear sprint along ranks and files
+    - Fiery orange / energy trail with multiple ghost afterimages
+    - Luminous dash streak / speedlines connecting the start and current positions
+    - Kinetic landing impact shockwave and spark bursts upon destination/capture
+    """
+    def __init__(self, dash_duration: float = 0.18, impact_duration: float = 0.10):
+        self.dash_duration = dash_duration
+        self.impact_duration = impact_duration
+        self.total_duration = dash_duration + impact_duration
+        self.elapsed: float = 0.0
+        self.active: bool = False
+
+        self.from_sq: Optional[chess.Square] = None
+        self.to_sq: Optional[chess.Square] = None
+        self.piece_code: str = ""
+        self.is_capture: bool = False
+        self.start_pos: Tuple[int, int] = (0, 0)
+        self.target_pos: Tuple[int, int] = (0, 0)
+        self.distance_squares: int = 1
+        self.flipped: bool = False
+
+    def trigger(
+        self,
+        from_sq: chess.Square,
+        to_sq: chess.Square,
+        piece_code: str,
+        is_capture: bool,
+        start_pos: Tuple[int, int],
+        target_pos: Tuple[int, int],
+        flipped: bool = False,
+    ) -> None:
+        """Initialize and begin the rook dash animation."""
+        self.from_sq = from_sq
+        self.to_sq = to_sq
+        self.piece_code = piece_code
+        self.is_capture = is_capture
+        self.start_pos = start_pos
+        self.target_pos = target_pos
+        self.flipped = flipped
+
+        f1, r1 = chess.square_file(from_sq), chess.square_rank(from_sq)
+        f2, r2 = chess.square_file(to_sq), chess.square_rank(to_sq)
+        self.distance_squares = max(1, abs(f2 - f1) + abs(r2 - r1))
+
+        # Dynamic duration: snappy sprint scaled slightly by distance
+        self.dash_duration = 0.12 + 0.015 * self.distance_squares
+        self.impact_duration = 0.12 if is_capture else 0.08
+        self.total_duration = self.dash_duration + self.impact_duration
+        self.elapsed = 0.0
+        self.active = True
+
+    def update(self, dt: float) -> bool:
+        """Advance dash animation time by dt. Returns True when completed."""
+        if not self.active:
+            return False
+        self.elapsed += max(0.0, dt)
+        if self.elapsed >= self.total_duration:
+            self.active = False
+            return True
+        return False
+
+    def cancel(self) -> None:
+        """Immediately stop dash animation."""
+        self.active = False
+        self.elapsed = 0.0
+
+    @property
+    def is_active(self) -> bool:
+        return self.active
+
+    @property
+    def dash_progress(self) -> float:
+        """Normalized dash progress from 0.0 to 1.0."""
+        if not self.active or self.dash_duration <= 0:
+            return 1.0
+        return min(1.0, self.elapsed / self.dash_duration)
+
+    @property
+    def impact_progress(self) -> float:
+        """Normalized impact/landing progress from 0.0 to 1.0."""
+        if not self.active or self.elapsed < self.dash_duration:
+            return 0.0
+        if self.impact_duration <= 0:
+            return 1.0
+        return min(1.0, (self.elapsed - self.dash_duration) / self.impact_duration)
+
+
 
 class ChessRenderer:
     """Encapsulates all Pygame drawing logic for the chess interface."""
@@ -377,6 +468,8 @@ class ChessRenderer:
         self.bounce_anim = GameStartBounceAnimation()
         # Post-game piece return-to-initial-position animation manager
         self.return_anim = PieceResetReturnAnimation()
+        # Rook Dash high-speed sprint & impact animation manager
+        self.rook_dash_anim = RookDashAnimation()
 
     def trigger_start_bounce(self) -> None:
         """Trigger the piece bounce animation at the start of a new game."""
@@ -451,6 +544,47 @@ class ChessRenderer:
     def is_return_animating(self) -> bool:
         """Return True if pieces are currently animating back to their initial squares."""
         return self.return_anim.is_active
+
+    def trigger_rook_dash(
+        self,
+        from_sq: chess.Square,
+        to_sq: chess.Square,
+        piece_code: str,
+        piece_images: Dict[str, pygame.Surface],
+        is_capture: bool = False,
+        flipped: bool = False,
+    ) -> None:
+        """Start a high-speed dash animation for a Rook in Rook Dash mode."""
+        img = piece_images.get(piece_code)
+        pw = img.get_width() if img else 80
+        ph = img.get_height() if img else 80
+        start_pos = square_to_piece_center(
+            from_sq, pw, ph, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+        )
+        target_pos = square_to_piece_center(
+            to_sq, pw, ph, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+        )
+        self.rook_dash_anim.trigger(
+            from_sq=from_sq,
+            to_sq=to_sq,
+            piece_code=piece_code,
+            is_capture=is_capture,
+            start_pos=start_pos,
+            target_pos=target_pos,
+            flipped=flipped,
+        )
+
+    def update_rook_dash(self, dt: float) -> bool:
+        """Update Rook Dash animation by dt seconds. Returns True if finished."""
+        return self.rook_dash_anim.update(dt)
+
+    def cancel_rook_dash(self) -> None:
+        """Cancel and dismiss active rook dash animation."""
+        self.rook_dash_anim.cancel()
+
+    def is_dash_animating(self) -> bool:
+        """Return True if a Rook is actively in mid-dash."""
+        return self.rook_dash_anim.is_active
 
     # -------------------------------------------------------------------------
     # Board & Square Highlights
@@ -631,8 +765,13 @@ class ChessRenderer:
             return
 
         is_bouncing = apply_bounce and self.bounce_anim.is_active
+        is_dash_active = self.rook_dash_anim.is_active
+        dash_to_sq = self.rook_dash_anim.to_sq if is_dash_active else None
 
         for sq in chess.SQUARES:
+            if is_dash_active and sq == dash_to_sq:
+                # Dashing piece is actively animated by draw_rook_dash_animation
+                continue
             piece = game_state.get_piece_at(sq)
             if piece is None:
                 continue
@@ -682,6 +821,121 @@ class ChessRenderer:
                     self.screen.blit(image, (draw_pos[0], int(draw_pos[1] + y_offset)))
                 else:
                     self.screen.blit(image, draw_pos)
+
+        if is_dash_active:
+            self.draw_rook_dash_animation(piece_images)
+
+    def draw_rook_dash_animation(self, piece_images: Dict[str, pygame.Surface]) -> None:
+        """
+        Render the dashing rook with motion trails, energy streaks, afterimages,
+        and an explosive landing impact shockwave.
+        """
+        if not self.rook_dash_anim.is_active:
+            return
+
+        anim = self.rook_dash_anim
+        code = anim.piece_code
+        if not code or code not in piece_images:
+            return
+
+        image = piece_images[code]
+        pw, ph = image.get_width(), image.get_height()
+        sx, sy = anim.start_pos
+        tx, ty = anim.target_pos
+
+        p = anim.dash_progress
+        # Snappy cubic ease-out for energetic burst deceleration
+        e = 1.0 - (1.0 - p) ** 3
+        cur_x = sx + (tx - sx) * e
+        cur_y = sy + (ty - sy) * e
+
+        c_sx = sx + pw // 2
+        c_sy = sy + ph // 2
+        c_cx = cur_x + pw // 2
+        c_cy = cur_y + ph // 2
+        c_tx = tx + pw // 2
+        c_ty = ty + ph // 2
+
+        # 1. Dash Energy Streaks & Beam
+        dx = c_cx - c_sx
+        dy = c_cy - c_sy
+        dist = math.hypot(dx, dy)
+        if dist > 4.0:
+            beam_surf = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+            beam_alpha = max(0, min(255, int(130 * (1.0 - anim.impact_progress * 0.8))))
+            # Wide warm outer glow
+            pygame.draw.line(beam_surf, (255, 120, 30, beam_alpha), (c_sx, c_sy), (c_cx, c_cy), 22)
+            # Vibrant orange mid-beam
+            pygame.draw.line(beam_surf, (255, 175, 50, min(255, int(beam_alpha * 1.5))), (c_sx, c_sy), (c_cx, c_cy), 8)
+            # Bright white-yellow core streak
+            pygame.draw.line(beam_surf, (255, 245, 210, min(255, int(beam_alpha * 2.0))), (c_sx, c_sy), (c_cx, c_cy), 3)
+
+            # Parallel speed lines (wind resistance streaks)
+            nx, ny = -dy / dist, dx / dist
+            for offset in (-16, 16):
+                ox1, oy1 = c_sx + nx * offset, c_sy + ny * offset
+                ox2, oy2 = c_cx + nx * offset, c_cy + ny * offset
+                sl_alpha = max(0, min(255, int(80 * (1.0 - anim.impact_progress))))
+                pygame.draw.line(beam_surf, (255, 160, 60, sl_alpha), (ox1, oy1), (ox2, oy2), 2)
+
+            self.screen.blit(beam_surf, (0, 0))
+
+        # 2. Ghost Afterimages (Motion Blur Trail)
+        if p < 1.0 or anim.impact_progress < 0.6:
+            ghost_lags = [0.08, 0.16, 0.24, 0.32]
+            ghost_alphas = [140, 95, 55, 25]
+            fade = max(0.0, 1.0 - anim.impact_progress)
+            for lag, base_alpha in zip(ghost_lags, ghost_alphas):
+                prev_p = p - lag
+                if prev_p > 0.01:
+                    ge = 1.0 - (1.0 - prev_p) ** 3
+                    gx = int(sx + (tx - sx) * ge)
+                    gy = int(sy + (ty - sy) * ge)
+                    ghost = image.copy()
+                    ghost.set_alpha(max(0, min(255, int(base_alpha * fade))))
+                    tint = pygame.Surface(image.get_size(), pygame.SRCALPHA)
+                    tint.fill((255, 130, 40, max(0, min(255, int(60 * fade)))))
+                    ghost.blit(tint, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+                    self.screen.blit(ghost, (gx, gy))
+
+        # 3. Dynamic Ground Shadow
+        shadow_w = max(4, int(self.square_size * 0.65))
+        shadow_h = max(2, int(self.square_size * 0.18))
+        shadow_surf = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow_surf, (0, 0, 0, 110), (0, 0, shadow_w, shadow_h))
+        shadow_center = (int(cur_x + pw // 2), int(cur_y + ph - 2))
+        self.screen.blit(shadow_surf, shadow_surf.get_rect(center=shadow_center))
+
+        # 4. Main Dashing Piece Sprite
+        self.screen.blit(image, (int(cur_x), int(cur_y)))
+
+        # 5. Landing Impact Shockwave & Burst Particles
+        ip = anim.impact_progress
+        if p >= 0.90 or ip > 0.0:
+            eff_ip = ip if ip > 0.0 else (p - 0.90) / 0.10 * 0.15
+            shock_surf = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+            fade = max(0.0, 1.0 - eff_ip)
+
+            max_r = 52 if anim.is_capture else 38
+            r1 = int(10 + eff_ip * max_r)
+            w1 = max(1, int(4 * fade))
+            pygame.draw.circle(shock_surf, (255, 140, 40, int(220 * fade)), (int(c_tx), int(c_ty)), r1, width=w1)
+
+            r2 = int(6 + eff_ip * (max_r * 0.6))
+            w2 = max(1, int(2 * fade))
+            pygame.draw.circle(shock_surf, (255, 235, 170, int(255 * fade)), (int(c_tx), int(c_ty)), r2, width=w2)
+
+            if anim.is_capture:
+                spark_dist = 14 + eff_ip * 45
+                spark_size = max(2, int(5 * fade))
+                spark_col = (255, 215, 70, int(240 * fade))
+                for angle_deg in (0, 45, 90, 135, 180, 225, 270, 315):
+                    rad = math.radians(angle_deg)
+                    spx = int(c_tx + spark_dist * math.cos(rad))
+                    spy = int(c_ty + spark_dist * math.sin(rad))
+                    pygame.draw.circle(shock_surf, spark_col, (spx, spy), spark_size)
+
+            self.screen.blit(shock_surf, (0, 0))
 
     def draw_dragged_piece(
         self,

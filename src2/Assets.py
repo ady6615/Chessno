@@ -87,6 +87,7 @@ SOUND_FILES = {
     "game_over": "GameOver.wav",
     "card_shuffle": "CardShuffle.wav",
     "card_flip": "CardFlip.wav",
+    "dash": "Dash.wav",
 }
 
 
@@ -206,6 +207,13 @@ def _generate_procedural_sound(sound_type: str) -> Optional[pygame.mixer.Sound]:
             "card_flip": [
                 (520, 0.03, 11000),
                 (740, 0.06, 15000),
+            ],
+            "dash": [
+                (280, 0.03, 11000),
+                (440, 0.03, 13000),
+                (660, 0.04, 15000),
+                (880, 0.05, 14000),
+                (520, 0.04, 9000),
             ],
         }
 
