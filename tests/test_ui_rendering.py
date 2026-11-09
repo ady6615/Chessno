@@ -128,9 +128,23 @@ class TestUIRendering(unittest.TestCase):
             piece_images=self.piece_images,
         )
 
+    def test_bishop_dash_mode_panel_rendering(self):
+        from bishop_dash_engine import BishopDashMode
+        state = GameState(mode=BishopDashMode())
+        self.renderer.draw_panel(
+            game_state=state,
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            mouse_pos=(950, 500),
+            sound_enabled=True,
+            flipped=False,
+            piece_images=self.piece_images,
+        )
+
     def test_mode_selector_modal_rendering(self):
         rects = self.renderer.draw_mode_selector_modal(mouse_pos=(600, 300))
-        self.assertEqual(len(rects), 5)
+        self.assertEqual(len(rects), 6)
 
     def test_winning_popup_rendering_white_wins(self):
         state = GameState()
@@ -247,7 +261,7 @@ class TestUIRendering(unittest.TestCase):
             mouse_pos=(600, 400),
             bot_controller=bot_ctrl,
         )
-        self.assertEqual(len(mode_rects), 5)
+        self.assertEqual(len(mode_rects), 6)
 
     def test_game_start_bounce_animation_lifecycle(self):
         """Verify lifecycle of GameStartBounceAnimation (inactive, trigger, update, complete, cancel)."""

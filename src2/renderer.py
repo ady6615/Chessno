@@ -342,6 +342,7 @@ class RookDashAnimation:
         self.target_pos: Tuple[int, int] = (0, 0)
         self.distance_squares: int = 1
         self.flipped: bool = False
+        self.theme_color: Tuple[int, int, int] = (255, 130, 40)
 
     def trigger(
         self,
@@ -352,8 +353,9 @@ class RookDashAnimation:
         start_pos: Tuple[int, int],
         target_pos: Tuple[int, int],
         flipped: bool = False,
+        theme_color: Tuple[int, int, int] = (255, 130, 40),
     ) -> None:
-        """Initialize and begin the rook dash animation."""
+        """Initialize and begin the dash animation."""
         self.from_sq = from_sq
         self.to_sq = to_sq
         self.piece_code = piece_code
@@ -361,6 +363,7 @@ class RookDashAnimation:
         self.start_pos = start_pos
         self.target_pos = target_pos
         self.flipped = flipped
+        self.theme_color = theme_color
 
         f1, r1 = chess.square_file(from_sq), chess.square_rank(from_sq)
         f2, r2 = chess.square_file(to_sq), chess.square_rank(to_sq)
@@ -553,8 +556,9 @@ class ChessRenderer:
         piece_images: Dict[str, pygame.Surface],
         is_capture: bool = False,
         flipped: bool = False,
+        theme_color: Tuple[int, int, int] = (255, 130, 40),
     ) -> None:
-        """Start a high-speed dash animation for a Rook in Rook Dash mode."""
+        """Start a high-speed dash animation for a piece in Dash modes."""
         img = piece_images.get(piece_code)
         pw = img.get_width() if img else 80
         ph = img.get_height() if img else 80
@@ -572,6 +576,27 @@ class ChessRenderer:
             start_pos=start_pos,
             target_pos=target_pos,
             flipped=flipped,
+            theme_color=theme_color,
+        )
+
+    def trigger_bishop_dash(
+        self,
+        from_sq: chess.Square,
+        to_sq: chess.Square,
+        piece_code: str,
+        piece_images: Dict[str, pygame.Surface],
+        is_capture: bool = False,
+        flipped: bool = False,
+    ) -> None:
+        """Start a high-speed dash animation for a Bishop in Bishop Dash mode."""
+        self.trigger_rook_dash(
+            from_sq=from_sq,
+            to_sq=to_sq,
+            piece_code=piece_code,
+            piece_images=piece_images,
+            is_capture=is_capture,
+            flipped=flipped,
+            theme_color=(185, 85, 255),
         )
 
     def update_rook_dash(self, dt: float) -> bool:
@@ -663,7 +688,7 @@ class ChessRenderer:
             self.screen.blit(self._surf_selected, rect.topleft)
             pygame.draw.rect(self.screen, (255, 230, 80), rect, width=2)
 
-            # 3b. Rook Dash Trajectory Beams
+            # 3b. Dash Trajectory Beams (Rook Dash & Bishop Dash)
             if getattr(game_state.mode, "name", "") == "Rook Dash":
                 sel_p = game_state.get_piece_at(selected_square)
                 if sel_p and sel_p.piece_type == chess.ROOK:
@@ -673,6 +698,15 @@ class ChessRenderer:
                             dest, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
                         )
                         pygame.draw.line(self.screen, (255, 140, 50), sel_center, d_rect.center, 3)
+            elif getattr(game_state.mode, "name", "") == "Bishop Dash":
+                sel_p = game_state.get_piece_at(selected_square)
+                if sel_p and sel_p.piece_type == chess.BISHOP:
+                    sel_center = rect.center
+                    for dest in legal_destinations:
+                        d_rect = square_to_rect(
+                            dest, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+                        )
+                        pygame.draw.line(self.screen, (180, 80, 255), sel_center, d_rect.center, 3)
 
         # 4. Legal destination indicators
         for dest in legal_destinations:
@@ -856,6 +890,12 @@ class ChessRenderer:
         c_tx = tx + pw // 2
         c_ty = ty + ph // 2
 
+        tc = getattr(anim, "theme_color", (255, 130, 40))
+        glow_col = tc
+        mid_col = (min(255, tc[0] + 35), min(255, tc[1] + 35), min(255, tc[2] + 35))
+        core_col = (255, 245, 220) if tc[0] > 200 and tc[2] < 100 else (250, 235, 255)
+        spark_col = (255, 215, 70) if tc[0] > 200 and tc[2] < 100 else (225, 175, 255)
+
         # 1. Dash Energy Streaks & Beam
         dx = c_cx - c_sx
         dy = c_cy - c_sy
@@ -864,11 +904,11 @@ class ChessRenderer:
             beam_surf = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
             beam_alpha = max(0, min(255, int(130 * (1.0 - anim.impact_progress * 0.8))))
             # Wide warm outer glow
-            pygame.draw.line(beam_surf, (255, 120, 30, beam_alpha), (c_sx, c_sy), (c_cx, c_cy), 22)
-            # Vibrant orange mid-beam
-            pygame.draw.line(beam_surf, (255, 175, 50, min(255, int(beam_alpha * 1.5))), (c_sx, c_sy), (c_cx, c_cy), 8)
-            # Bright white-yellow core streak
-            pygame.draw.line(beam_surf, (255, 245, 210, min(255, int(beam_alpha * 2.0))), (c_sx, c_sy), (c_cx, c_cy), 3)
+            pygame.draw.line(beam_surf, (glow_col[0], glow_col[1], glow_col[2], beam_alpha), (c_sx, c_sy), (c_cx, c_cy), 22)
+            # Vibrant mid-beam
+            pygame.draw.line(beam_surf, (mid_col[0], mid_col[1], mid_col[2], min(255, int(beam_alpha * 1.5))), (c_sx, c_sy), (c_cx, c_cy), 8)
+            # Bright core streak
+            pygame.draw.line(beam_surf, (core_col[0], core_col[1], core_col[2], min(255, int(beam_alpha * 2.0))), (c_sx, c_sy), (c_cx, c_cy), 3)
 
             # Parallel speed lines (wind resistance streaks)
             nx, ny = -dy / dist, dx / dist
@@ -876,7 +916,7 @@ class ChessRenderer:
                 ox1, oy1 = c_sx + nx * offset, c_sy + ny * offset
                 ox2, oy2 = c_cx + nx * offset, c_cy + ny * offset
                 sl_alpha = max(0, min(255, int(80 * (1.0 - anim.impact_progress))))
-                pygame.draw.line(beam_surf, (255, 160, 60, sl_alpha), (ox1, oy1), (ox2, oy2), 2)
+                pygame.draw.line(beam_surf, (mid_col[0], mid_col[1], mid_col[2], sl_alpha), (ox1, oy1), (ox2, oy2), 2)
 
             self.screen.blit(beam_surf, (0, 0))
 
@@ -894,7 +934,7 @@ class ChessRenderer:
                     ghost = image.copy()
                     ghost.set_alpha(max(0, min(255, int(base_alpha * fade))))
                     tint = pygame.Surface(image.get_size(), pygame.SRCALPHA)
-                    tint.fill((255, 130, 40, max(0, min(255, int(60 * fade)))))
+                    tint.fill((glow_col[0], glow_col[1], glow_col[2], max(0, min(255, int(60 * fade)))))
                     ghost.blit(tint, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
                     self.screen.blit(ghost, (gx, gy))
 
@@ -919,21 +959,20 @@ class ChessRenderer:
             max_r = 52 if anim.is_capture else 38
             r1 = int(10 + eff_ip * max_r)
             w1 = max(1, int(4 * fade))
-            pygame.draw.circle(shock_surf, (255, 140, 40, int(220 * fade)), (int(c_tx), int(c_ty)), r1, width=w1)
+            pygame.draw.circle(shock_surf, (glow_col[0], glow_col[1], glow_col[2], int(220 * fade)), (int(c_tx), int(c_ty)), r1, width=w1)
 
             r2 = int(6 + eff_ip * (max_r * 0.6))
             w2 = max(1, int(2 * fade))
-            pygame.draw.circle(shock_surf, (255, 235, 170, int(255 * fade)), (int(c_tx), int(c_ty)), r2, width=w2)
+            pygame.draw.circle(shock_surf, (core_col[0], core_col[1], core_col[2], int(255 * fade)), (int(c_tx), int(c_ty)), r2, width=w2)
 
             if anim.is_capture:
                 spark_dist = 14 + eff_ip * 45
                 spark_size = max(2, int(5 * fade))
-                spark_col = (255, 215, 70, int(240 * fade))
                 for angle_deg in (0, 45, 90, 135, 180, 225, 270, 315):
                     rad = math.radians(angle_deg)
                     spx = int(c_tx + spark_dist * math.cos(rad))
                     spy = int(c_ty + spark_dist * math.sin(rad))
-                    pygame.draw.circle(shock_surf, spark_col, (spx, spy), spark_size)
+                    pygame.draw.circle(shock_surf, (spark_col[0], spark_col[1], spark_col[2], int(240 * fade)), (spx, spy), spark_size)
 
             self.screen.blit(shock_surf, (0, 0))
 
@@ -1306,12 +1345,12 @@ class ChessRenderer:
     # Game Mode Selection Start Menu / Modal
     # -------------------------------------------------------------------------
 
-    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
-        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash)."""
+    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash)."""
         screen_w = self.screen.get_width()
-        card_w, card_h = 180, 185
-        gap = 10
-        total_w = card_w * 5 + gap * 4
+        card_w, card_h = 158, 185
+        gap = 8
+        total_w = card_w * 6 + gap * 5
         start_x = (screen_w - total_w) // 2
         card_y = 96
 
@@ -1320,7 +1359,8 @@ class ChessRenderer:
         rect_snail = pygame.Rect(start_x + (card_w + gap) * 2, card_y, card_w, card_h)
         rect_queen_pawn = pygame.Rect(start_x + (card_w + gap) * 3, card_y, card_w, card_h)
         rect_rook_dash = pygame.Rect(start_x + (card_w + gap) * 4, card_y, card_w, card_h)
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash
+        rect_bishop_dash = pygame.Rect(start_x + (card_w + gap) * 5, card_y, card_w, card_h)
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash
 
     def get_mode_selector_ai_rects(
         self,
@@ -1394,10 +1434,10 @@ class ChessRenderer:
         mouse_pos: Tuple[int, int],
         timer: Optional[ChessTimer] = None,
         bot_controller: Optional[ChessBotController] = None,
-    ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+    ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
         """
         Draw a modal start menu allowing the player to select the game mode, opponent/AI difficulty, and match timer.
-        Returns the five mode card Rects for event collision checking.
+        Returns the six mode card Rects for event collision checking.
         """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
@@ -1411,11 +1451,11 @@ class ChessRenderer:
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Select game mode [1-5], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
+        sub_surf = self.font_normal.render("Select game mode [1-6], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
         s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 26))
         self.screen.blit(sub_surf, s_rect)
 
-        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash = self.get_mode_selector_rects()
+        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash = self.get_mode_selector_rects()
 
         # 1. Classic Chess Card
         is_hov_c = rect_classic.collidepoint(mouse_pos)
@@ -1556,6 +1596,34 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, btn_rd_color, btn_rd_rect, border_radius=5)
         btn_rd_lbl = self.font_subtitle.render("PLAY [5]", True, (35, 15, 10))
         self.screen.blit(btn_rd_lbl, btn_rd_lbl.get_rect(center=btn_rd_rect.center))
+
+        # 6. Bishop Dash Card
+        is_hov_bd = rect_bishop_dash.collidepoint(mouse_pos)
+        bd_bg = (52, 57, 70) if is_hov_bd else (40, 44, 54)
+        bd_border = (180, 80, 255) if is_hov_bd else PANEL_BORDER
+        pygame.draw.rect(self.screen, bd_bg, rect_bishop_dash, border_radius=10)
+        pygame.draw.rect(self.screen, bd_border, rect_bishop_dash, width=2 if is_hov_bd else 1, border_radius=10)
+
+        bd_title = self.font_header.render("6. Bishop Dash", True, (185, 95, 255))
+        self.screen.blit(bd_title, (rect_bishop_dash.x + 10, rect_bishop_dash.y + 12))
+        bd_badge = self.font_micro.render("DASHING BISHOPS", True, (210, 130, 255))
+        self.screen.blit(bd_badge, (rect_bishop_dash.x + 10, rect_bishop_dash.y + 32))
+
+        bd_lines = [
+            "• 2 Bishops, 8 Pawns & King",
+            "• Bishops dash 4 diagonals",
+            "• Stops at edge or pawns",
+            "• Pawns promote to Bishops",
+        ]
+        for idx, line in enumerate(bd_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_bishop_dash.x + 10, rect_bishop_dash.y + 52 + idx * 19))
+
+        btn_bd_rect = pygame.Rect(rect_bishop_dash.x + 10, rect_bishop_dash.bottom - 36, rect_bishop_dash.width - 20, 26)
+        btn_bd_color = (200, 110, 255) if is_hov_bd else (170, 70, 245)
+        pygame.draw.rect(self.screen, btn_bd_color, btn_bd_rect, border_radius=5)
+        btn_bd_lbl = self.font_subtitle.render("PLAY [6]", True, (30, 10, 40))
+        self.screen.blit(btn_bd_lbl, btn_bd_lbl.get_rect(center=btn_bd_rect.center))
 
         # ---------------------------------------------------------------------
         # Opponent & Bot Difficulty Section
@@ -1722,10 +1790,10 @@ class ChessRenderer:
         start_lbl = self.font_header.render("START MATCH / PLAY NOW", True, (15, 35, 25))
         self.screen.blit(start_lbl, start_lbl.get_rect(center=start_game_r.center))
 
-        tip_txt = self.font_micro.render("Press [1-5] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
+        tip_txt = self.font_micro.render("Press [1-6] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
         self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 656)))
 
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash
 
 
     # -------------------------------------------------------------------------
@@ -1887,6 +1955,7 @@ class ChessRenderer:
         is_snail_mode = isinstance(game_state.mode, ImmortalSnailMode)
         is_queen_pawn_mode = (game_state.mode.name in ("Queen Pawn", "Queen Pawn Game"))
         is_rook_dash_mode = (game_state.mode.name == "Rook Dash")
+        is_bishop_dash_mode = (game_state.mode.name == "Bishop Dash")
         if is_snail_mode:
             mode_str = "MODE: IMMORTAL SNAIL"
             mode_color = (140, 230, 90)
@@ -1899,6 +1968,9 @@ class ChessRenderer:
         elif is_rook_dash_mode:
             mode_str = "MODE: ROOK DASH"
             mode_color = (255, 120, 40)
+        elif is_bishop_dash_mode:
+            mode_str = "MODE: BISHOP DASH"
+            mode_color = (180, 80, 255)
         else:
             mode_str = "MODE: CLASSIC"
             mode_color = ACCENT_COLOR
@@ -2337,6 +2409,52 @@ class ChessRenderer:
             black_caps = game_state.captured_pieces.get("b", [])
             cap_stat = f"Captures: W +{len(white_caps)} | B +{len(black_caps)}"
             self.screen.blit(self.font_micro.render(cap_stat, True, (255, 160, 80)), (caps_box.x + 10, caps_box.y + 68))
+
+        elif is_bishop_dash_mode:
+            # Bishop Dash Mode Overview
+            mod_title = self.font_subtitle.render("BISHOP DASH ARENA", True, (180, 80, 255))
+            self.screen.blit(mod_title, (px + 14, 466))
+
+            badge_lbl = self.font_micro.render("4-WAY DIAGONAL DASH • CHECKMATE TO WIN", True, (210, 130, 255))
+            self.screen.blit(badge_lbl, (px + 14, 484))
+
+            # Rules Card
+            rules_box = pygame.Rect(px + 10, 500, pw - 20, 76)
+            pygame.draw.rect(self.screen, (28, 32, 40), rules_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, rules_box, width=1, border_radius=6)
+
+            rules = [
+                "• Bishops dash along diagonals",
+                "• Stops at board edge or own pawns",
+                "• Captures first enemy piece hit",
+                "• Pawns promote strictly to Bishops",
+            ]
+            for idx, rule in enumerate(rules):
+                r_txt = self.font_micro.render(rule, True, TEXT_SECONDARY)
+                self.screen.blit(r_txt, (rules_box.x + 10, rules_box.y + 6 + idx * 17))
+
+            # Material & Status Card
+            caps_box = pygame.Rect(px + 10, 582, pw - 20, 94)
+            pygame.draw.rect(self.screen, (28, 32, 40), caps_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, caps_box, width=1, border_radius=6)
+
+            c_title = self.font_micro.render("ACTIVE PIECES & CAPTURES", True, TEXT_MUTED)
+            self.screen.blit(c_title, (caps_box.x + 10, caps_box.y + 6))
+
+            white_bishops = len(game_state.board.pieces(chess.BISHOP, chess.WHITE))
+            white_pawns = len(game_state.board.pieces(chess.PAWN, chess.WHITE))
+            black_bishops = len(game_state.board.pieces(chess.BISHOP, chess.BLACK))
+            black_pawns = len(game_state.board.pieces(chess.PAWN, chess.BLACK))
+
+            w_stat = f"White: {white_bishops} Bishops, {white_pawns} Pawns"
+            b_stat = f"Black: {black_bishops} Bishops, {black_pawns} Pawns"
+            self.screen.blit(self.font_micro.render(w_stat, True, TEXT_PRIMARY), (caps_box.x + 10, caps_box.y + 24))
+            self.screen.blit(self.font_micro.render(b_stat, True, TEXT_PRIMARY), (caps_box.x + 10, caps_box.y + 44))
+
+            white_caps = game_state.captured_pieces.get("w", [])
+            black_caps = game_state.captured_pieces.get("b", [])
+            cap_stat = f"Captures: W +{len(white_caps)} | B +{len(black_caps)}"
+            self.screen.blit(self.font_micro.render(cap_stat, True, (210, 130, 255)), (caps_box.x + 10, caps_box.y + 68))
 
         else:
             # Classic Mode Overview (Standard FIDE Chess)

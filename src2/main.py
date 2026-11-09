@@ -42,6 +42,7 @@ from uno_engine import ChessUnoMode, UnoTurnPhase
 from snail_engine import ImmortalSnailMode
 from queen_pawn_engine import QueenPawnMode
 from rook_dash_engine import RookDashMode
+from bishop_dash_engine import BishopDashMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 
@@ -176,6 +177,11 @@ def main() -> None:
             rd_mode = RookDashMode()
             game_state = GameState(mode=rd_mode)
             flipped = (bot_controller.player_color == chess.BLACK)
+        elif mode_name in ("Bishop Dash", "bishop dash"):
+            current_mode_name = "Bishop Dash"
+            bd_mode = BishopDashMode()
+            game_state = GameState(mode=bd_mode)
+            flipped = (bot_controller.player_color == chess.BLACK)
         else:
             current_mode_name = "Classic"
             classic_mode = ClassicChessMode()
@@ -200,14 +206,29 @@ def main() -> None:
         to_sq: chess.Square,
         result: MoveResult,
     ) -> None:
+        if not result.success or moving_piece is None:
+            return
+        mode_name = getattr(game_state.mode, "name", "")
         if (
-            result.success
-            and getattr(game_state.mode, "name", "") == "Rook Dash"
-            and moving_piece is not None
+            mode_name == "Rook Dash"
             and moving_piece.piece_type == chess.ROOK
         ):
             pcode = piece_to_code(moving_piece) or ("wr" if moving_piece.color == chess.WHITE else "br")
             renderer.trigger_rook_dash(
+                from_sq=from_sq,
+                to_sq=to_sq,
+                piece_code=pcode,
+                piece_images=piece_images,
+                is_capture=result.is_capture,
+                flipped=flipped,
+            )
+            Assets.play_sound("dash")
+        elif (
+            mode_name == "Bishop Dash"
+            and moving_piece.piece_type == chess.BISHOP
+        ):
+            pcode = piece_to_code(moving_piece) or ("wb" if moving_piece.color == chess.WHITE else "bb")
+            renderer.trigger_bishop_dash(
                 from_sq=from_sq,
                 to_sq=to_sq,
                 piece_code=pcode,
@@ -340,7 +361,7 @@ def main() -> None:
 
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect, s_rect, qp_rect, rd_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
 
@@ -354,6 +375,8 @@ def main() -> None:
                         switch_to_mode("Queen Pawn")
                     elif rd_rect.collidepoint(event_pos):
                         switch_to_mode("Rook Dash")
+                    elif bd_rect.collidepoint(event_pos):
+                        switch_to_mode("Bishop Dash")
                     elif vs_bot_r.collidepoint(event_pos):
                         bot_controller.enabled = True
                         Assets.play_sound("move")
@@ -731,6 +754,9 @@ def main() -> None:
 
                 elif event.key == pygame.K_5 and mode_selector_open:
                     switch_to_mode("Rook Dash")
+
+                elif event.key == pygame.K_6 and mode_selector_open:
+                    switch_to_mode("Bishop Dash")
 
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
