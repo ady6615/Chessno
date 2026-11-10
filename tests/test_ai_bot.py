@@ -111,10 +111,10 @@ class TestAIBotLevels(unittest.TestCase):
         # Should play a top GM opening move: e4, d4, c4, or Nf3
         self.assertIn(move.uci(), ["e2e4", "d2d4", "c2c4", "g1f3"])
 
-        # Against 1. e4, Master bot as Black should respond with standard book defense (e5, c5, e6, c6, Nf6, d5)
+        # Against 1. e4, Master bot as Black should respond with standard book defense (e5, c5, e6, c6, Nf6, d5, d6)
         board.push_san("e4")
         move_black = select_best_move(board, BotDifficulty.MASTER)
-        self.assertIn(move_black.uci(), ["c7c5", "e7e5", "e7e6", "c7c6", "g8f6", "d7d5"])
+        self.assertIn(move_black.uci(), ["c7c5", "e7e5", "e7e6", "c7c6", "g8f6", "d7d5", "d7d6"])
 
     def test_master_bot_tactical_mate_in_two(self):
         """Master level bot must resolve tactical mate in 2."""

@@ -84,13 +84,17 @@ def main() -> None:
     FPS = 60
 
     def toggle_fullscreen() -> None:
-        nonlocal is_fullscreen, screen
+        nonlocal is_fullscreen, screen, virtual_screen
         is_fullscreen = not is_fullscreen
         if is_fullscreen:
             # Switch to desktop resolution borderless fullscreen
             screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         else:
             screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
+        cur_w, cur_h = screen.get_size()
+        virtual_screen = pygame.Surface((cur_w, cur_h))
+        renderer.screen = virtual_screen
+        renderer.update_layout(cur_w, cur_h, is_fullscreen=is_fullscreen)
 
     # 2. Load Assets & Themes
     board_image, piece_images = Assets.load_assets()
@@ -258,22 +262,17 @@ def main() -> None:
         renderer.update_start_bounce(dt)
         renderer.update_rook_dash(dt)
 
-        # Calculate aspect-ratio preserving display scaling geometry
+        # Ensure virtual_screen and renderer layout dynamically match current screen dimensions
         disp_w, disp_h = screen.get_size()
-        scale = min(disp_w / VIRTUAL_WIDTH, disp_h / VIRTUAL_HEIGHT)
-        scaled_w = int(VIRTUAL_WIDTH * scale)
-        scaled_h = int(VIRTUAL_HEIGHT * scale)
-        offset_x = (disp_w - scaled_w) // 2
-        offset_y = (disp_h - scaled_h) // 2
+        if virtual_screen.get_size() != (disp_w, disp_h):
+            virtual_screen = pygame.Surface((disp_w, disp_h))
+            renderer.screen = virtual_screen
+            renderer.update_layout(disp_w, disp_h, is_fullscreen=is_fullscreen)
 
         def screen_to_virtual(pos: Tuple[int, int]) -> Tuple[int, int]:
-            if scale <= 0:
-                return (0, 0)
-            vx = int((pos[0] - offset_x) / scale)
-            vy = int((pos[1] - offset_y) / scale)
-            return max(0, min(VIRTUAL_WIDTH - 1, vx)), max(0, min(VIRTUAL_HEIGHT - 1, vy))
+            return pos
 
-        mouse_pos = screen_to_virtual(pygame.mouse.get_pos())
+        mouse_pos = pygame.mouse.get_pos()
 
         # Update match chess clock countdown
         if not mode_selector_open and not game_state.is_game_over():
@@ -346,6 +345,10 @@ def main() -> None:
                 if not is_fullscreen:
                     windowed_size = (max(800, event.w), max(600, event.h))
                     screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
+                    cur_w, cur_h = screen.get_size()
+                    virtual_screen = pygame.Surface((cur_w, cur_h))
+                    renderer.screen = virtual_screen
+                    renderer.update_layout(cur_w, cur_h, is_fullscreen=False)
                 continue
 
             # ---------------------------------------------------------
@@ -565,9 +568,9 @@ def main() -> None:
                 clicked_sq = pixel_to_square(
                     event_pos,
                     flipped=flipped,
-                    board_x=BOARD_X,
-                    board_y=BOARD_Y,
-                    square_size=SQUARE_SIZE,
+                    board_x=renderer.board_x,
+                    board_y=renderer.board_y,
+                    square_size=renderer.square_size,
                 )
 
                 if clicked_sq is not None:
@@ -642,9 +645,9 @@ def main() -> None:
                     target_sq = pixel_to_square(
                         event_pos,
                         flipped=flipped,
-                        board_x=BOARD_X,
-                        board_y=BOARD_Y,
-                        square_size=SQUARE_SIZE,
+                        board_x=renderer.board_x,
+                        board_y=renderer.board_y,
+                        square_size=renderer.square_size,
                     )
 
                     # If released on a different square (drag-and-drop move attempt)
@@ -841,19 +844,10 @@ def main() -> None:
             renderer.draw_mode_selector_modal(mouse_pos, timer=timer, bot_controller=bot_controller)
 
         # -------------------------------------------------------------
-        # PRESENTATION (Aspect-ratio preserving scale to display)
+        # PRESENTATION (Direct 1:1 blit to display)
         # -------------------------------------------------------------
-        screen.fill((12, 14, 18))
-
-        if scaled_w < disp_w or scaled_h < disp_h:
-            frame_box = pygame.Rect(offset_x - 1, offset_y - 1, scaled_w + 2, scaled_h + 2)
-            pygame.draw.rect(screen, (36, 42, 54), frame_box, width=1)
-
-        if scaled_w == VIRTUAL_WIDTH and scaled_h == VIRTUAL_HEIGHT:
-            screen.blit(virtual_screen, (offset_x, offset_y))
-        else:
-            scaled_surf = pygame.transform.smoothscale(virtual_screen, (scaled_w, scaled_h))
-            screen.blit(scaled_surf, (offset_x, offset_y))
+        screen.blit(virtual_screen, (0, 0))
+        pygame.display.flip()
 
         pygame.display.flip()
 

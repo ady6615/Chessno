@@ -454,6 +454,13 @@ class ChessRenderer:
 
         self.buttons = UIButtons(panel_x, panel_width)
 
+        # Board and piece scaling caches for adaptive fullscreen rendering
+        self._cached_board_size: Optional[Tuple[int, int]] = None
+        self._cached_board_scaled: Optional[pygame.Surface] = None
+        self._cached_board_src: Optional[pygame.Surface] = None
+        self._cached_pieces_key: Optional[Tuple[int, int]] = None
+        self._cached_pieces_dict: Dict[str, pygame.Surface] = {}
+
         # Pre-create highlight overlays for high performance
         self._surf_selected = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
         pygame.draw.rect(self._surf_selected, (255, 215, 0, 75), (0, 0, square_size, square_size))
@@ -473,6 +480,87 @@ class ChessRenderer:
         self.return_anim = PieceResetReturnAnimation()
         # Rook Dash high-speed sprint & impact animation manager
         self.rook_dash_anim = RookDashAnimation()
+
+    def update_layout(self, width: int, height: int, is_fullscreen: bool = False) -> None:
+        """
+        Dynamically adapt chessboard, panel, and UI geometry for the given display resolution,
+        seamlessly optimizing for fullscreen mode across any monitor aspect ratio (16:9, 16:10, 21:9, etc.).
+        """
+        if not is_fullscreen and width == 1200 and height == 900:
+            new_board_x = 50
+            new_board_y = 50
+            new_square_size = 100
+            new_panel_width = 270
+            new_panel_x = 900
+        else:
+            margin_y = max(24, int(height * 0.04))
+            avail_h = max(300, height - 2 * margin_y)
+
+            new_panel_width = max(270, min(330, int(width * 0.22)))
+            panel_margin_right = max(24, int(width * 0.025))
+            new_panel_x = width - new_panel_width - panel_margin_right
+
+            avail_board_w = max(200, new_panel_x - 30)
+            max_sq_w = (avail_board_w - 50) // 8
+            max_sq_h = avail_h // 8
+
+            new_square_size = max(40, min(max_sq_w, max_sq_h))
+            board_size = 8 * new_square_size
+            new_board_y = max(10, (height - board_size) // 2)
+            new_board_x = max(25, (new_panel_x - board_size) // 2)
+
+        changed = (
+            new_board_x != self.board_x
+            or new_board_y != self.board_y
+            or new_square_size != self.square_size
+            or new_panel_x != self.panel_x
+            or new_panel_width != self.panel_width
+        )
+
+        self.board_x = new_board_x
+        self.board_y = new_board_y
+        self.square_size = new_square_size
+        self.panel_x = new_panel_x
+        self.panel_width = new_panel_width
+
+        if changed:
+            self.buttons = UIButtons(self.panel_x, self.panel_width)
+
+            self._surf_selected = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+            pygame.draw.rect(self._surf_selected, (255, 215, 0, 75), (0, 0, self.square_size, self.square_size))
+            pygame.draw.rect(self._surf_selected, (255, 230, 80, 200), (0, 0, self.square_size, self.square_size), width=2)
+
+            self._surf_last_move = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+            pygame.draw.rect(self._surf_last_move, (50, 205, 120, 65), (0, 0, self.square_size, self.square_size))
+            pygame.draw.rect(self._surf_last_move, (70, 225, 140, 130), (0, 0, self.square_size, self.square_size), width=2)
+
+            self._surf_check = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+            self._surf_check.fill((235, 60, 60, 110))
+
+            self._cached_board_size = None
+            self._cached_board_scaled = None
+            self._cached_pieces_key = None
+            self._cached_pieces_dict = {}
+
+    def get_scaled_piece_images(self, piece_images: Optional[Dict[str, pygame.Surface]]) -> Dict[str, pygame.Surface]:
+        """Scale piece images to match current square_size with cached performance."""
+        if not piece_images or self.square_size == 100:
+            return piece_images or {}
+
+        cache_key = (self.square_size, id(piece_images))
+        if getattr(self, "_cached_pieces_key", None) == cache_key:
+            return self._cached_pieces_dict
+
+        ratio = self.square_size / 100.0
+        scaled_dict = {}
+        for code, img in piece_images.items():
+            w = max(16, int(round(img.get_width() * ratio)))
+            h = max(16, int(round(img.get_height() * ratio)))
+            scaled_dict[code] = pygame.transform.smoothscale(img, (w, h))
+
+        self._cached_pieces_key = cache_key
+        self._cached_pieces_dict = scaled_dict
+        return scaled_dict
 
     def trigger_start_bounce(self) -> None:
         """Trigger the piece bounce animation at the start of a new game."""
@@ -559,9 +647,10 @@ class ChessRenderer:
         theme_color: Tuple[int, int, int] = (255, 130, 40),
     ) -> None:
         """Start a high-speed dash animation for a piece in Dash modes."""
-        img = piece_images.get(piece_code)
-        pw = img.get_width() if img else 80
-        ph = img.get_height() if img else 80
+        scaled_images = self.get_scaled_piece_images(piece_images)
+        img = scaled_images.get(piece_code)
+        pw = img.get_width() if img else int(self.square_size * 0.8)
+        ph = img.get_height() if img else int(self.square_size * 0.8)
         start_pos = square_to_piece_center(
             from_sq, pw, ph, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
         )
@@ -628,8 +717,19 @@ class ChessRenderer:
         frame_rect = pygame.Rect(self.board_x - 3, self.board_y - 3, board_w + 6, board_h + 6)
         pygame.draw.rect(self.screen, (46, 52, 68), frame_rect, width=3, border_radius=6)
 
-        # 3. Blit the board background
-        self.screen.blit(board_image, (self.board_x, self.board_y))
+        # 3. Blit the board background (smoothly scaled if board geometry has adapted)
+        if board_image.get_size() != (board_w, board_h):
+            if (
+                self._cached_board_size != (board_w, board_h)
+                or self._cached_board_src != board_image
+                or self._cached_board_scaled is None
+            ):
+                self._cached_board_scaled = pygame.transform.smoothscale(board_image, (board_w, board_h))
+                self._cached_board_size = (board_w, board_h)
+                self._cached_board_src = board_image
+            self.screen.blit(self._cached_board_scaled, (self.board_x, self.board_y))
+        else:
+            self.screen.blit(board_image, (self.board_x, self.board_y))
 
         # 4. Rank Coordinates (1 to 8) along left margin
         for row in range(8):
@@ -760,6 +860,7 @@ class ChessRenderer:
         If return-to-initial animation is active, pieces smoothly glide home along their paths.
         If bounce animation is active, pieces bounce with dynamic ground shadows.
         """
+        piece_images = self.get_scaled_piece_images(piece_images)
         if self.return_anim.is_active:
             p = self.return_anim.progress
             e = ease_in_out_cubic(p)
@@ -867,6 +968,7 @@ class ChessRenderer:
         if not self.rook_dash_anim.is_active:
             return
 
+        piece_images = self.get_scaled_piece_images(piece_images)
         anim = self.rook_dash_anim
         code = anim.piece_code
         if not code or code not in piece_images:
@@ -983,6 +1085,7 @@ class ChessRenderer:
         mouse_pos: Tuple[int, int],
     ) -> None:
         """Render the floating piece sprite directly centered on the mouse cursor."""
+        piece_images = self.get_scaled_piece_images(piece_images)
         if piece_code not in piece_images:
             return
         image = piece_images[piece_code]
@@ -1202,6 +1305,7 @@ class ChessRenderer:
         flipped: bool = False,
     ) -> None:
         """Render the modal dialog allowing the player to select promotion piece."""
+        piece_images = self.get_scaled_piece_images(piece_images)
         rect = square_to_rect(
             to_square, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
         )
@@ -1348,11 +1452,13 @@ class ChessRenderer:
     def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
         """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash)."""
         screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
         card_w, card_h = 158, 185
         gap = 8
         total_w = card_w * 6 + gap * 5
         start_x = (screen_w - total_w) // 2
-        card_y = 96
+        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
+        card_y = 96 + offset_y
 
         rect_classic = pygame.Rect(start_x, card_y, card_w, card_h)
         rect_uno = pygame.Rect(start_x + (card_w + gap) * 1, card_y, card_w, card_h)
@@ -1373,38 +1479,41 @@ class ChessRenderer:
     ]:
         """Return clickable rectangles for AI bot settings in the modal."""
         screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
         card_w = 216
         gap = 14
         total_w = card_w * 4 + gap * 3
         start_x = (screen_w - total_w) // 2
+        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
 
-        # Row 1: Game Type & Side Selection (y = 348)
-        rect_vs_bot = pygame.Rect(start_x, 348, 195, 30)
-        rect_vs_local = pygame.Rect(start_x + 205, 348, 195, 30)
+        # Row 1: Game Type & Side Selection (y = 348 + offset_y)
+        rect_vs_bot = pygame.Rect(start_x, 348 + offset_y, 195, 30)
+        rect_vs_local = pygame.Rect(start_x + 205, 348 + offset_y, 195, 30)
 
         # Side selection buttons (White, Random, Black)
         side_start_x = start_x + 520
         btn_side_w = 118
         side_gap = 8
-        rect_side_white = pygame.Rect(side_start_x, 348, btn_side_w, 30)
-        rect_side_random = pygame.Rect(side_start_x + btn_side_w + side_gap, 348, btn_side_w, 30)
-        rect_side_black = pygame.Rect(side_start_x + (btn_side_w + side_gap) * 2, 348, btn_side_w, 30)
+        rect_side_white = pygame.Rect(side_start_x, 348 + offset_y, btn_side_w, 30)
+        rect_side_random = pygame.Rect(side_start_x + btn_side_w + side_gap, 348 + offset_y, btn_side_w, 30)
+        rect_side_black = pygame.Rect(side_start_x + (btn_side_w + side_gap) * 2, 348 + offset_y, btn_side_w, 30)
         side_rects = (rect_side_white, rect_side_random, rect_side_black)
 
-        # Row 2: 4 Difficulty Cards (y = 390, height = 56)
+        # Row 2: 4 Difficulty Cards (y = 390 + offset_y, height = 56)
         diff_rects = [
-            (pygame.Rect(start_x + i * (card_w + gap), 390, card_w, 56), diff)
+            (pygame.Rect(start_x + i * (card_w + gap), 390 + offset_y, card_w, 56), diff)
             for i, diff in enumerate(BotDifficulty)
         ]
 
-        # Start match prominent button (y = 604)
-        rect_start_match = pygame.Rect(screen_w // 2 - 160, 604, 320, 40)
+        # Start match prominent button (y = 604 + offset_y)
+        rect_start_match = pygame.Rect(screen_w // 2 - 160, 604 + offset_y, 320, 40)
 
         return rect_vs_bot, rect_vs_local, diff_rects, side_rects, rect_start_match
 
     def get_mode_selector_timer_rects(self) -> Tuple[List[Tuple[pygame.Rect, Optional[int]]], pygame.Rect, pygame.Rect]:
         """Return preset rects [(rect, seconds), ...] and (minus_rect, plus_rect) for the start modal."""
         screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
         presets = [
             ("Unlimited", None),
             ("1 min", 60),
@@ -1418,15 +1527,16 @@ class ChessRenderer:
         gap = 10
         total_w = len(presets) * btn_w + (len(presets) - 1) * gap
         start_x = (screen_w - total_w) // 2
-        y = 512
+        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
+        y = 512 + offset_y
 
         preset_rects = []
         for i, (_, sec) in enumerate(presets):
             r = pygame.Rect(start_x + i * (btn_w + gap), y, btn_w, btn_h)
             preset_rects.append((r, sec))
 
-        minus_rect = pygame.Rect(screen_w // 2 - 96, 552, 38, 26)
-        plus_rect = pygame.Rect(screen_w // 2 + 58, 552, 38, 26)
+        minus_rect = pygame.Rect(screen_w // 2 - 96, 552 + offset_y, 38, 26)
+        plus_rect = pygame.Rect(screen_w // 2 + 58, 552 + offset_y, 38, 26)
         return preset_rects, minus_rect, plus_rect
 
     def draw_mode_selector_modal(
@@ -1441,12 +1551,13 @@ class ChessRenderer:
         """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
+        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
 
         overlay = pygame.Surface((screen_w, screen_h), pygame.SRCALPHA)
         overlay.fill((12, 14, 18, 238))
         self.screen.blit(overlay, (0, 0))
 
-        title_y = 38
+        title_y = 38 + offset_y
         title_surf = self.font_title.render("SELECT GAME MODE & OPPONENT", True, TEXT_PRIMARY)
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
@@ -1628,10 +1739,10 @@ class ChessRenderer:
         # ---------------------------------------------------------------------
         # Opponent & Bot Difficulty Section
         # ---------------------------------------------------------------------
-        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 302), (screen_w // 2 + 450, 302), 1)
+        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 302 + offset_y), (screen_w // 2 + 450, 302 + offset_y), 1)
 
         opp_title = self.font_header.render("OPPONENT & BOT DIFFICULTY", True, CYAN_COLOR)
-        self.screen.blit(opp_title, opp_title.get_rect(center=(screen_w // 2, 320)))
+        self.screen.blit(opp_title, opp_title.get_rect(center=(screen_w // 2, 320 + offset_y)))
 
         vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = self.get_mode_selector_ai_rects()
         is_bot_enabled = bool(bot_controller.enabled) if bot_controller else True
@@ -1713,13 +1824,13 @@ class ChessRenderer:
         # ---------------------------------------------------------------------
         # Pre-Match Match Timer (Time Control) Section
         # ---------------------------------------------------------------------
-        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 460), (screen_w // 2 + 450, 460), 1)
+        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 460 + offset_y), (screen_w // 2 + 450, 460 + offset_y), 1)
 
         timer_title = self.font_header.render("TIME CONTROL (SET MATCH TIMER)", True, GOLD_COLOR)
-        self.screen.blit(timer_title, timer_title.get_rect(center=(screen_w // 2, 476)))
+        self.screen.blit(timer_title, timer_title.get_rect(center=(screen_w // 2, 476 + offset_y)))
 
         timer_sub = self.font_micro.render("Choose match time limit before starting. Clock begins ticking on first move.", True, TEXT_MUTED)
-        self.screen.blit(timer_sub, timer_sub.get_rect(center=(screen_w // 2, 494)))
+        self.screen.blit(timer_sub, timer_sub.get_rect(center=(screen_w // 2, 494 + offset_y)))
 
         preset_rects, minus_rect, plus_rect = self.get_mode_selector_timer_rects()
         current_limit = timer.time_limit_seconds if timer else 300
@@ -1762,7 +1873,7 @@ class ChessRenderer:
         # Custom minute adjuster: [- 1m] [Current: X min] [+ 1m]
         curr_min_str = timer.get_time_preset_label() if timer else "5 min"
         curr_lbl = self.font_small.render(f"Selected: {curr_min_str}", True, TEXT_PRIMARY)
-        self.screen.blit(curr_lbl, curr_lbl.get_rect(center=(screen_w // 2 - 18, 565)))
+        self.screen.blit(curr_lbl, curr_lbl.get_rect(center=(screen_w // 2 - 18, 565 + offset_y)))
 
         # Minus button
         is_hov_m = minus_rect.collidepoint(mouse_pos)
@@ -1781,7 +1892,7 @@ class ChessRenderer:
         # ---------------------------------------------------------------------
         # Start Match Button
         # ---------------------------------------------------------------------
-        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 590), (screen_w // 2 + 450, 590), 1)
+        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 590 + offset_y), (screen_w // 2 + 450, 590 + offset_y), 1)
 
         is_hov_start = start_game_r.collidepoint(mouse_pos)
         start_bg = ACCENT_HOVER if is_hov_start else ACCENT_COLOR
@@ -1791,7 +1902,7 @@ class ChessRenderer:
         self.screen.blit(start_lbl, start_lbl.get_rect(center=start_game_r.center))
 
         tip_txt = self.font_micro.render("Press [1-6] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
-        self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 656)))
+        self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 656 + offset_y)))
 
         return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash
 
@@ -2163,9 +2274,6 @@ class ChessRenderer:
 
         # 6. Active Mode Section: UNO Cards or Classic Placeholder
         mod_rect = pygame.Rect(px, 466, pw, 272)
-        pygame.draw.rect(self.screen, PANEL_CARD_BG, mod_rect, border_radius=8)
-        pygame.draw.rect(self.screen, PANEL_BORDER, mod_rect, width=1, border_radius=8)
-
         pygame.draw.rect(self.screen, PANEL_CARD_BG, mod_rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_BORDER, mod_rect, width=1, border_radius=8)
 

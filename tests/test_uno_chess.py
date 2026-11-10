@@ -535,6 +535,8 @@ class TestUnoShuffleAndButtonDraw(unittest.TestCase):
     def test_animated_shuffle_sequence(self):
         mode = ChessUnoMode()
         state = GameState(mode=mode)
+        # Ensure a standard number card is drawn so White plays normally
+        mode.deck.draw_pile.append(UnoCard(UnoCardType.ONE, UnoCardColor.BLUE))
         self.assertEqual(mode.phase, UnoTurnPhase.AWAITING_DRAW)
 
         # Player clicks button or presses space

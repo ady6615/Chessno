@@ -1049,6 +1049,8 @@ def select_best_move(
     Compute and select the best move according to the given difficulty level.
     Guarantees responsive timing with strict search deadlines and clean promotion handling.
     """
+    TRANSPOSITION_TABLE.clear()
+
     if game_mode and getattr(game_mode, "name", "") in ("Rook Dash", "Bishop Dash"):
         legal_moves = [m for m in board.legal_moves if game_mode.can_move(m, board=board)]
     else:

@@ -457,6 +457,61 @@ class TestUIRendering(unittest.TestCase):
         self.renderer.cancel_start_bounce()
         self.assertFalse(self.renderer.is_bounce_animating())
 
+    def test_fullscreen_layout_adaptation(self):
+        """Verify dynamic layout updates across standard, 1080p, 1440p, 4K, and ultrawide fullscreen resolutions."""
+        resolutions = [
+            (1200, 900, False),    # Default windowed
+            (1920, 1080, True),    # Standard 1080p 16:9 Fullscreen
+            (1920, 1200, True),    # 16:10 Fullscreen
+            (2560, 1440, True),    # 1440p 2K Fullscreen
+            (3840, 2160, True),    # 4K UHD Fullscreen
+            (2560, 1080, True),    # 21:9 Ultrawide Fullscreen
+            (1366, 768, True),     # Laptop 768p Fullscreen
+        ]
+
+        state = GameState(mode=ClassicChessMode())
+
+        for width, height, is_fs in resolutions:
+            surf = pygame.Surface((width, height))
+            self.renderer.screen = surf
+            self.renderer.update_layout(width, height, is_fullscreen=is_fs)
+
+            # Board must fit within screen bounds
+            board_w = 8 * self.renderer.square_size
+            board_h = 8 * self.renderer.square_size
+            self.assertGreater(self.renderer.square_size, 0)
+            self.assertGreaterEqual(self.renderer.board_x, 0)
+            self.assertGreaterEqual(self.renderer.board_y, 0)
+            self.assertLessEqual(self.renderer.board_x + board_w, self.renderer.panel_x)
+            self.assertLessEqual(self.renderer.board_y + board_h, height)
+
+            # Panel must fit on right side
+            self.assertLessEqual(self.renderer.panel_x + self.renderer.panel_width, width)
+
+            # Check that drawing routines execute cleanly without error on scaled surfaces
+            self.renderer.draw_board(self.board_img)
+            self.renderer.draw_pieces(state, self.piece_images)
+            self.renderer.draw_panel(
+                game_state=state,
+                active_pack_name="Default",
+                active_pack_index=0,
+                total_packs=1,
+                mouse_pos=(self.renderer.panel_x + 10, 100),
+                sound_enabled=True,
+                flipped=False,
+                piece_images=self.piece_images,
+                is_fullscreen=is_fs,
+            )
+            self.renderer.draw_mode_selector_modal(mouse_pos=(width // 2, height // 2))
+
+        # Reset back to default 1200x900
+        self.renderer.update_layout(1200, 900, is_fullscreen=False)
+        self.assertEqual(self.renderer.board_x, 50)
+        self.assertEqual(self.renderer.board_y, 50)
+        self.assertEqual(self.renderer.square_size, 100)
+        self.assertEqual(self.renderer.panel_x, 900)
+        self.assertEqual(self.renderer.panel_width, 270)
+
 
 if __name__ == "__main__":
     unittest.main()
