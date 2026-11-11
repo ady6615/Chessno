@@ -43,6 +43,7 @@ from snail_engine import ImmortalSnailMode
 from queen_pawn_engine import QueenPawnMode
 from rook_dash_engine import RookDashMode
 from bishop_dash_engine import BishopDashMode
+from hero_mode_engine import HeroMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 
@@ -185,6 +186,11 @@ def main() -> None:
             current_mode_name = "Bishop Dash"
             bd_mode = BishopDashMode()
             game_state = GameState(mode=bd_mode)
+            flipped = (bot_controller.player_color == chess.BLACK)
+        elif mode_name in ("Hero Mode", "hero mode"):
+            current_mode_name = "Hero Mode"
+            hm_mode = HeroMode()
+            game_state = GameState(mode=hm_mode)
             flipped = (bot_controller.player_color == chess.BLACK)
         else:
             current_mode_name = "Classic"
@@ -364,7 +370,7 @@ def main() -> None:
 
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect, hm_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
 
@@ -380,6 +386,8 @@ def main() -> None:
                         switch_to_mode("Rook Dash")
                     elif bd_rect.collidepoint(event_pos):
                         switch_to_mode("Bishop Dash")
+                    elif hm_rect.collidepoint(event_pos):
+                        switch_to_mode("Hero Mode")
                     elif vs_bot_r.collidepoint(event_pos):
                         bot_controller.enabled = True
                         Assets.play_sound("move")
@@ -761,6 +769,9 @@ def main() -> None:
                 elif event.key == pygame.K_6 and mode_selector_open:
                     switch_to_mode("Bishop Dash")
 
+                elif event.key == pygame.K_7 and mode_selector_open:
+                    switch_to_mode("Hero Mode")
+
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
                         mode_selector_open = False
@@ -806,6 +817,10 @@ def main() -> None:
         if dragging and selected_square is not None:
             piece = game_state.get_piece_at(selected_square)
             code = piece_to_code(piece)
+            if getattr(game_state.mode, "name", "") == "Hero Mode" and piece and piece.piece_type == chess.QUEEN:
+                hero_code = "wh" if piece.color == chess.WHITE else "bh"
+                if hero_code in piece_images:
+                    code = hero_code
             if code:
                 renderer.draw_dragged_piece(piece_images, code, mouse_pos)
 

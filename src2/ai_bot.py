@@ -1051,7 +1051,9 @@ def select_best_move(
     """
     TRANSPOSITION_TABLE.clear()
 
-    if game_mode and getattr(game_mode, "name", "") in ("Rook Dash", "Bishop Dash"):
+    if game_mode and hasattr(game_mode, "get_legal_moves"):
+        legal_moves = game_mode.get_legal_moves(board)
+    elif game_mode and getattr(game_mode, "name", "") in ("Rook Dash", "Bishop Dash"):
         legal_moves = [m for m in board.legal_moves if game_mode.can_move(m, board=board)]
     else:
         legal_moves = list(board.legal_moves)

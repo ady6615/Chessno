@@ -30,6 +30,7 @@ from game_engine import GameState
 from snail_engine import ImmortalSnailMode
 from timer import ChessTimer
 from ai_bot import BotDifficulty, BOT_DIFFICULTY_METADATA, ChessBotController
+import Assets
 
 # Theme and UI Color Palette (Modern Slate & Obsidian Dark Theme)
 BG_COLOR = (18, 20, 26)
@@ -807,6 +808,19 @@ class ChessRenderer:
                             dest, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
                         )
                         pygame.draw.line(self.screen, (180, 80, 255), sel_center, d_rect.center, 3)
+            elif getattr(game_state.mode, "name", "") == "Hero Mode":
+                sel_p = game_state.get_piece_at(selected_square)
+                if sel_p and sel_p.piece_type == chess.QUEEN:
+                    sel_center = rect.center
+                    for dest in legal_destinations:
+                        d_rect = square_to_rect(
+                            dest, flipped=flipped, board_x=self.board_x, board_y=self.board_y, square_size=self.square_size
+                        )
+                        df = abs(chess.square_file(dest) - chess.square_file(selected_square))
+                        dr = abs(chess.square_rank(dest) - chess.square_rank(selected_square))
+                        is_jump = (df == 1 and dr == 2) or (df == 2 and dr == 1)
+                        line_col = (255, 215, 60) if is_jump else (255, 185, 30)
+                        pygame.draw.line(self.screen, line_col, sel_center, d_rect.center, 2 if is_jump else 1)
 
         # 4. Legal destination indicators
         for dest in legal_destinations:
@@ -912,10 +926,12 @@ class ChessRenderer:
                 continue
 
             code = piece_to_code(piece)
-            if not code or code not in piece_images:
-                continue
-
-            image = piece_images[code]
+            if getattr(game_state.mode, "name", "") == "Hero Mode" and piece.piece_type == chess.QUEEN:
+                image = Assets.get_hero_piece_asset(piece.color, piece_images)
+            else:
+                if not code or code not in piece_images:
+                    continue
+                image = piece_images[code]
             draw_pos = square_to_piece_center(
                 sq,
                 image.get_width(),
@@ -1449,13 +1465,13 @@ class ChessRenderer:
     # Game Mode Selection Start Menu / Modal
     # -------------------------------------------------------------------------
 
-    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
-        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash)."""
+    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash, Hero_Mode)."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
-        card_w, card_h = 158, 185
+        card_w, card_h = 138, 185
         gap = 8
-        total_w = card_w * 6 + gap * 5
+        total_w = card_w * 7 + gap * 6
         start_x = (screen_w - total_w) // 2
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
         card_y = 96 + offset_y
@@ -1466,7 +1482,8 @@ class ChessRenderer:
         rect_queen_pawn = pygame.Rect(start_x + (card_w + gap) * 3, card_y, card_w, card_h)
         rect_rook_dash = pygame.Rect(start_x + (card_w + gap) * 4, card_y, card_w, card_h)
         rect_bishop_dash = pygame.Rect(start_x + (card_w + gap) * 5, card_y, card_w, card_h)
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash
+        rect_hero_mode = pygame.Rect(start_x + (card_w + gap) * 6, card_y, card_w, card_h)
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode
 
     def get_mode_selector_ai_rects(
         self,
@@ -1544,10 +1561,10 @@ class ChessRenderer:
         mouse_pos: Tuple[int, int],
         timer: Optional[ChessTimer] = None,
         bot_controller: Optional[ChessBotController] = None,
-    ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+    ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
         """
         Draw a modal start menu allowing the player to select the game mode, opponent/AI difficulty, and match timer.
-        Returns the six mode card Rects for event collision checking.
+        Returns the seven mode card Rects for event collision checking.
         """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
@@ -1562,11 +1579,11 @@ class ChessRenderer:
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Select game mode [1-6], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
+        sub_surf = self.font_normal.render("Select game mode [1-7], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
         s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 26))
         self.screen.blit(sub_surf, s_rect)
 
-        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash = self.get_mode_selector_rects()
+        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode = self.get_mode_selector_rects()
 
         # 1. Classic Chess Card
         is_hov_c = rect_classic.collidepoint(mouse_pos)
@@ -1736,6 +1753,34 @@ class ChessRenderer:
         btn_bd_lbl = self.font_subtitle.render("PLAY [6]", True, (30, 10, 40))
         self.screen.blit(btn_bd_lbl, btn_bd_lbl.get_rect(center=btn_bd_rect.center))
 
+        # 7. Hero Mode Card
+        is_hov_hm = rect_hero_mode.collidepoint(mouse_pos)
+        hm_bg = (52, 57, 70) if is_hov_hm else (40, 44, 54)
+        hm_border = (255, 205, 45) if is_hov_hm else PANEL_BORDER
+        pygame.draw.rect(self.screen, hm_bg, rect_hero_mode, border_radius=10)
+        pygame.draw.rect(self.screen, hm_border, rect_hero_mode, width=2 if is_hov_hm else 1, border_radius=10)
+
+        hm_title = self.font_header.render("7. Hero Mode", True, (255, 210, 50))
+        self.screen.blit(hm_title, (rect_hero_mode.x + 10, rect_hero_mode.y + 12))
+        hm_badge = self.font_micro.render("AMAZON (Q + N)", True, (255, 225, 90))
+        self.screen.blit(hm_badge, (rect_hero_mode.x + 10, rect_hero_mode.y + 32))
+
+        hm_lines = [
+            "• Queen & Knight fusion",
+            "• Leaps as Knight",
+            "• Sweeps as Queen",
+            "• Checkmate to win",
+        ]
+        for idx, line in enumerate(hm_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_hero_mode.x + 10, rect_hero_mode.y + 52 + idx * 19))
+
+        btn_hm_rect = pygame.Rect(rect_hero_mode.x + 10, rect_hero_mode.bottom - 36, rect_hero_mode.width - 20, 26)
+        btn_hm_color = (255, 225, 80) if is_hov_hm else (240, 195, 35)
+        pygame.draw.rect(self.screen, btn_hm_color, btn_hm_rect, border_radius=5)
+        btn_hm_lbl = self.font_subtitle.render("PLAY [7]", True, (35, 30, 10))
+        self.screen.blit(btn_hm_lbl, btn_hm_lbl.get_rect(center=btn_hm_rect.center))
+
         # ---------------------------------------------------------------------
         # Opponent & Bot Difficulty Section
         # ---------------------------------------------------------------------
@@ -1901,10 +1946,10 @@ class ChessRenderer:
         start_lbl = self.font_header.render("START MATCH / PLAY NOW", True, (15, 35, 25))
         self.screen.blit(start_lbl, start_lbl.get_rect(center=start_game_r.center))
 
-        tip_txt = self.font_micro.render("Press [1-6] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
+        tip_txt = self.font_micro.render("Press [1-7] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
         self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 656 + offset_y)))
 
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode
 
 
     # -------------------------------------------------------------------------
@@ -2067,6 +2112,7 @@ class ChessRenderer:
         is_queen_pawn_mode = (game_state.mode.name in ("Queen Pawn", "Queen Pawn Game"))
         is_rook_dash_mode = (game_state.mode.name == "Rook Dash")
         is_bishop_dash_mode = (game_state.mode.name == "Bishop Dash")
+        is_hero_mode = (game_state.mode.name == "Hero Mode")
         if is_snail_mode:
             mode_str = "MODE: IMMORTAL SNAIL"
             mode_color = (140, 230, 90)
@@ -2082,6 +2128,9 @@ class ChessRenderer:
         elif is_bishop_dash_mode:
             mode_str = "MODE: BISHOP DASH"
             mode_color = (180, 80, 255)
+        elif is_hero_mode:
+            mode_str = "MODE: HERO MODE"
+            mode_color = (255, 205, 45)
         else:
             mode_str = "MODE: CLASSIC"
             mode_color = ACCENT_COLOR
@@ -2563,6 +2612,52 @@ class ChessRenderer:
             black_caps = game_state.captured_pieces.get("b", [])
             cap_stat = f"Captures: W +{len(white_caps)} | B +{len(black_caps)}"
             self.screen.blit(self.font_micro.render(cap_stat, True, (210, 130, 255)), (caps_box.x + 10, caps_box.y + 68))
+
+        elif is_hero_mode:
+            # Hero Mode Overview
+            mod_title = self.font_subtitle.render("HERO MODE ARENA", True, (255, 205, 45))
+            self.screen.blit(mod_title, (px + 14, 466))
+
+            badge_lbl = self.font_micro.render("QUEEN + KNIGHT HERO • CHECKMATE TO WIN", True, (255, 225, 90))
+            self.screen.blit(badge_lbl, (px + 14, 484))
+
+            # Rules Card
+            rules_box = pygame.Rect(px + 10, 500, pw - 20, 76)
+            pygame.draw.rect(self.screen, (28, 32, 40), rules_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, rules_box, width=1, border_radius=6)
+
+            rules = [
+                "• Hero combines Queen & Knight",
+                "• Leaps over pieces as Knight",
+                "• Sweeps lines as Queen",
+                "• Pawns promote strictly to Heroes",
+            ]
+            for idx, rule in enumerate(rules):
+                r_txt = self.font_micro.render(rule, True, TEXT_SECONDARY)
+                self.screen.blit(r_txt, (rules_box.x + 10, rules_box.y + 6 + idx * 17))
+
+            # Material & Status Card
+            caps_box = pygame.Rect(px + 10, 582, pw - 20, 94)
+            pygame.draw.rect(self.screen, (28, 32, 40), caps_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, caps_box, width=1, border_radius=6)
+
+            c_title = self.font_micro.render("ACTIVE PIECES & CAPTURES", True, TEXT_MUTED)
+            self.screen.blit(c_title, (caps_box.x + 10, caps_box.y + 6))
+
+            white_heroes = len(game_state.board.pieces(chess.QUEEN, chess.WHITE))
+            white_pawns = len(game_state.board.pieces(chess.PAWN, chess.WHITE))
+            black_heroes = len(game_state.board.pieces(chess.QUEEN, chess.BLACK))
+            black_pawns = len(game_state.board.pieces(chess.PAWN, chess.BLACK))
+
+            w_stat = f"White: {white_heroes} Hero, {white_pawns} Pawns"
+            b_stat = f"Black: {black_heroes} Hero, {black_pawns} Pawns"
+            self.screen.blit(self.font_micro.render(w_stat, True, TEXT_PRIMARY), (caps_box.x + 10, caps_box.y + 24))
+            self.screen.blit(self.font_micro.render(b_stat, True, TEXT_PRIMARY), (caps_box.x + 10, caps_box.y + 44))
+
+            white_caps = game_state.captured_pieces.get("w", [])
+            black_caps = game_state.captured_pieces.get("b", [])
+            cap_stat = f"Captures: W +{len(white_caps)} | B +{len(black_caps)}"
+            self.screen.blit(self.font_micro.render(cap_stat, True, (255, 215, 60)), (caps_box.x + 10, caps_box.y + 68))
 
         else:
             # Classic Mode Overview (Standard FIDE Chess)

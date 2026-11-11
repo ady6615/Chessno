@@ -13,8 +13,9 @@ Handles:
 import math
 import array
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import pygame
+import chess
 
 # ============================================================
 # 1. CONFIGURATION
@@ -275,6 +276,84 @@ def load_sounds(pack_dir: Path) -> Dict[str, Optional[pygame.mixer.Sound]]:
                 sounds[name] = synthetic_sound
 
     return sounds
+
+
+def create_hero_piece_asset(
+    queen_surf: pygame.Surface,
+    knight_surf: pygame.Surface,
+    is_white: bool = True,
+) -> pygame.Surface:
+    """
+    Synthesize the combined Queen + Knight 'Hero' piece asset.
+    Features:
+    - Glowing hero radiant aura and emblem border
+    - Harmoniously composited Queen crown (left) and Knight head (right)
+    - Distinctive White (golden champion) and Black (dark mystic) theme styling
+    """
+    size = 90
+    canvas = pygame.Surface((size, size), pygame.SRCALPHA)
+    cx, cy = size // 2, size // 2
+
+    # 1. Radiant Aura & Emblem Badge
+    aura_color = (255, 215, 60, 45) if is_white else (185, 80, 255, 45)
+    border_color = (255, 220, 100, 140) if is_white else (200, 110, 255, 140)
+    pygame.draw.circle(canvas, aura_color, (cx, cy), 38)
+    pygame.draw.circle(canvas, border_color, (cx, cy), 38, width=2)
+
+    # 2. Rescale Queen & Knight components to fit harmoniously side-by-side
+    q_scale = 0.82
+    k_scale = 0.76
+
+    qw = max(10, int(queen_surf.get_width() * q_scale))
+    qh = max(10, int(queen_surf.get_height() * q_scale))
+    q_scaled = pygame.transform.smoothscale(queen_surf, (qw, qh))
+
+    kw = max(10, int(knight_surf.get_width() * k_scale))
+    kh = max(10, int(knight_surf.get_height() * k_scale))
+    k_scaled = pygame.transform.smoothscale(knight_surf, (kw, kh))
+
+    # Base alignment at bottom
+    base_y = size - 8
+    q_x = 6
+    q_y = base_y - qh
+
+    k_x = size - kw - 6
+    k_y = base_y - kh
+
+    # 3. Blit Queen on left, Knight on right
+    canvas.blit(q_scaled, (q_x, q_y))
+    canvas.blit(k_scaled, (k_x, k_y))
+
+    # 4. Hero Crest Star at top center
+    star_col = (255, 235, 130) if is_white else (230, 160, 255)
+    pygame.draw.polygon(
+        canvas,
+        star_col,
+        [
+            (cx, cy - 35), (cx + 3, cy - 31), (cx + 8, cy - 31),
+            (cx + 4, cy - 27), (cx + 6, cy - 22), (cx, cy - 25),
+            (cx - 6, cy - 22), (cx - 4, cy - 27), (cx - 8, cy - 31),
+            (cx - 3, cy - 31)
+        ],
+    )
+
+    return canvas
+
+
+def get_hero_piece_asset(color: chess.Color, piece_images: Dict[str, pygame.Surface]) -> pygame.Surface:
+    """Return synthesized Hero asset ('wh' or 'bh'), generating and caching it if not yet present."""
+    key = "wh" if color == chess.WHITE else "bh"
+    if key in piece_images:
+        return piece_images[key]
+    q_key = "wq" if color == chess.WHITE else "bq"
+    k_key = "wk" if color == chess.WHITE else "bk"
+    q_img = piece_images.get(q_key)
+    k_img = piece_images.get(k_key)
+    if q_img and k_img:
+        hero_img = create_hero_piece_asset(q_img, k_img, is_white=(color == chess.WHITE))
+        piece_images[key] = hero_img
+        return hero_img
+    return piece_images.get(q_key) or pygame.Surface((90, 90), pygame.SRCALPHA)
 
 
 # ============================================================

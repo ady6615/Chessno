@@ -222,6 +222,9 @@ class GameState:
         if self.board.piece_at(square).color != self.board.turn:
             return []
 
+        if hasattr(self.mode, "get_legal_moves_from"):
+            return self.mode.get_legal_moves_from(self, square)
+
         moves = [m for m in self.board.legal_moves if m.from_square == square]
 
         # Filter through active mode and custom validators
@@ -247,6 +250,9 @@ class GameState:
         promotion: Optional[int] = None,
     ) -> bool:
         """Check if moving between the two squares is legal under all rules."""
+        if hasattr(self.mode, "is_legal_move"):
+            return self.mode.is_legal_move(self, from_square, to_square, promotion)
+
         # Check standard promotion defaulting to Queen (or mode default) if needed
         promo = promotion
         if promo is None and self.needs_promotion(from_square, to_square):
@@ -277,16 +283,9 @@ class GameState:
 
         target_rank = chess.square_rank(to_square)
         if piece.color == chess.WHITE and target_rank == 7:
-            # Check if any legal move is a promotion between these squares
-            return any(
-                m.from_square == from_square and m.to_square == to_square and m.promotion is not None
-                for m in self.board.legal_moves
-            )
+            return True
         elif piece.color == chess.BLACK and target_rank == 0:
-            return any(
-                m.from_square == from_square and m.to_square == to_square and m.promotion is not None
-                for m in self.board.legal_moves
-            )
+            return True
 
         return False
 
@@ -328,7 +327,13 @@ class GameState:
 
         move = chess.Move(from_square, to_square, promotion=promo_type)
 
-        if move not in self.board.legal_moves:
+        is_legal = False
+        if hasattr(self.mode, "is_legal_move"):
+            is_legal = self.mode.is_legal_move(self, from_square, to_square, promo_type)
+        elif move in self.board.legal_moves:
+            is_legal = True
+
+        if not is_legal:
             return MoveResult(success=False, error_message="Illegal chess move.")
 
         if not self.mode.can_move(self, move):
@@ -338,8 +343,10 @@ class GameState:
             return MoveResult(success=False, error_message="Move rejected by validator hook.")
 
         # Capture metadata before pushing the move
-        is_capture = self.board.is_capture(move)
-        is_castling = self.board.is_castling(move)
+        is_capture = self.board.is_capture(move) or (
+            self.board.piece_at(to_square) is not None and self.board.piece_at(to_square).color != self.board.turn
+        )
+        is_castling = False if not self.board.has_castling_rights(self.board.turn) else self.board.is_castling(move)
         is_en_passant = self.board.is_en_passant(move)
         
         captured_piece: Optional[chess.Piece] = None
@@ -350,7 +357,13 @@ class GameState:
         elif is_capture:
             captured_piece = self.board.piece_at(to_square)
 
-        san = self.board.san(move)
+        try:
+            san = self.board.san(move)
+        except Exception:
+            p_sym = piece.symbol().upper()
+            c_char = "x" if is_capture else ""
+            sq_dest = chess.square_name(to_square)
+            san = f"{p_sym}{c_char}{sq_dest}"
 
         # Commit move to the authoritative board
         self.board.push(move)
@@ -366,13 +379,27 @@ class GameState:
         self.last_move = (from_square, to_square)
 
         # Compile game outcome flags
-        is_check = self.board.is_check()
-        is_checkmate = self.board.is_checkmate()
-        is_stalemate = self.board.is_stalemate()
-        is_insufficient = self.board.is_insufficient_material()
-        is_fifty = self.board.is_fifty_moves()
-        is_rep = self.board.is_repetition(3)
-        is_draw = is_stalemate or is_insufficient or is_fifty or is_rep
+        if hasattr(self.mode, "is_in_check"):
+            is_check = self.mode.is_in_check(self)
+        else:
+            is_check = self.board.is_check()
+
+        if hasattr(self.mode, "is_game_over"):
+            is_over = self.mode.is_game_over(self)
+            w = self.mode.winner(self) if hasattr(self.mode, "winner") else None
+            is_checkmate = is_over and (w is not None)
+            is_draw = is_over and (w is None)
+            is_stalemate = is_draw and (not is_check)
+            is_insufficient = False
+            is_fifty = self.board.is_fifty_moves()
+            is_rep = self.board.is_repetition(3)
+        else:
+            is_checkmate = self.board.is_checkmate()
+            is_stalemate = self.board.is_stalemate()
+            is_insufficient = self.board.is_insufficient_material()
+            is_fifty = self.board.is_fifty_moves()
+            is_rep = self.board.is_repetition(3)
+            is_draw = is_stalemate or is_insufficient or is_fifty or is_rep
         draw_reason = None
         if is_draw:
             if is_stalemate:
