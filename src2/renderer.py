@@ -30,6 +30,7 @@ from game_engine import GameState
 from snail_engine import ImmortalSnailMode
 from timer import ChessTimer
 from ai_bot import BotDifficulty, BOT_DIFFICULTY_METADATA, ChessBotController
+from asset_pack_creator import PIECE_SPECS
 import Assets
 
 # Theme and UI Color Palette (Modern Slate & Obsidian Dark Theme)
@@ -77,6 +78,7 @@ class UIButtons:
         self.black_clock = pygame.Rect(panel_x + clock_w + 8, 100, clock_w, 46)
 
         # Theme switching buttons
+        self.create_pack = pygame.Rect(panel_x + panel_width - 88, 304, 88, 22)
         self.prev_theme = pygame.Rect(panel_x, 328, 65, 30)
         self.next_theme = pygame.Rect(panel_x + panel_width - 65, 328, 65, 30)
         
@@ -1951,6 +1953,260 @@ class ChessRenderer:
 
         return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode
 
+    # -------------------------------------------------------------------------
+    # Custom Asset Pack Creator Modal
+    # -------------------------------------------------------------------------
+
+    def get_asset_pack_creator_rects(self) -> Dict[str, Any]:
+        """
+        Calculates and returns interactive rects for the Asset Pack Creator modal.
+        Provides bounding boxes for:
+        - modal window rect
+        - close button [X]
+        - pack name input box
+        - folder batch import button
+        - reset all button
+        - 12 piece cards, browse buttons, and clear buttons
+        - status message bar
+        - cancel button
+        - save & apply pack button
+        """
+        screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
+
+        modal_w = min(840, max(680, screen_w - 40))
+        modal_h = min(610, max(540, screen_h - 40))
+        modal_x = (screen_w - modal_w) // 2
+        modal_y = (screen_h - modal_h) // 2
+
+        modal_rect = pygame.Rect(modal_x, modal_y, modal_w, modal_h)
+        close_rect = pygame.Rect(modal_x + modal_w - 36, modal_y + 12, 24, 24)
+
+        top_y = modal_y + 58
+        name_input_rect = pygame.Rect(modal_x + 115, top_y, 220, 30)
+        folder_btn_rect = pygame.Rect(modal_x + 348, top_y, 140, 30)
+        reset_btn_rect = pygame.Rect(modal_x + 498, top_y, 110, 30)
+
+        # 2-column layout for the 12 pieces
+        col_w = (modal_w - 32 - 14) // 2
+        col_white_x = modal_x + 16
+        col_black_x = modal_x + 16 + col_w + 14
+
+        grid_y = modal_y + 124
+        card_h = 52
+        row_gap = 6
+
+        browse_buttons: Dict[str, pygame.Rect] = {}
+        clear_buttons: Dict[str, pygame.Rect] = {}
+        card_rects: Dict[str, pygame.Rect] = {}
+
+        # White pieces (wa, wq, wr, wb, wk, wp)
+        white_codes = ["wa", "wq", "wr", "wb", "wk", "wp"]
+        for idx, code in enumerate(white_codes):
+            card_y = grid_y + idx * (card_h + row_gap)
+            c_rect = pygame.Rect(col_white_x, card_y, col_w, card_h)
+            card_rects[code] = c_rect
+            browse_buttons[code] = pygame.Rect(col_white_x + col_w - 110, card_y + 11, 72, 30)
+            clear_buttons[code] = pygame.Rect(col_white_x + col_w - 34, card_y + 11, 28, 30)
+
+        # Black pieces (ba, bq, br, bb, bk, bp)
+        black_codes = ["ba", "bq", "br", "bb", "bk", "bp"]
+        for idx, code in enumerate(black_codes):
+            card_y = grid_y + idx * (card_h + row_gap)
+            c_rect = pygame.Rect(col_black_x, card_y, col_w, card_h)
+            card_rects[code] = c_rect
+            browse_buttons[code] = pygame.Rect(col_black_x + col_w - 110, card_y + 11, 72, 30)
+            clear_buttons[code] = pygame.Rect(col_black_x + col_w - 34, card_y + 11, 28, 30)
+
+        status_y = modal_y + modal_h - 78
+        status_rect = pygame.Rect(modal_x + 16, status_y, modal_w - 32, 28)
+
+        bottom_y = modal_y + modal_h - 44
+        cancel_rect = pygame.Rect(modal_x + modal_w - 310, bottom_y, 110, 32)
+        save_rect = pygame.Rect(modal_x + modal_w - 190, bottom_y, 174, 32)
+
+        return {
+            "modal": modal_rect,
+            "close": close_rect,
+            "name_input": name_input_rect,
+            "import_folder": folder_btn_rect,
+            "reset_all": reset_btn_rect,
+            "browse": browse_buttons,
+            "clear": clear_buttons,
+            "cards": card_rects,
+            "status": status_rect,
+            "cancel": cancel_rect,
+            "save": save_rect,
+        }
+
+    def draw_asset_pack_creator_modal(
+        self,
+        mouse_pos: Tuple[int, int],
+        state: Any,
+        default_piece_images: Optional[Dict[str, pygame.Surface]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Renders the interactive Asset Pack Creator modal panel.
+        Displays:
+        - Sleek translucent backdrop and styled modal window
+        - Pack name text input field with active focus border and blinking cursor
+        - Batch folder import and reset buttons
+        - 12 piece preview cards (White & Black) with high-res thumbnails, status indicators, and browse/clear buttons
+        - Status feedback message and customization counter
+        - Save & Apply and Cancel action buttons
+        """
+        rects = self.get_asset_pack_creator_rects()
+        screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
+
+        # 1. Semi-translucent backdrop overlay
+        overlay = pygame.Surface((screen_w, screen_h), pygame.SRCALPHA)
+        overlay.fill((10, 12, 16, 225))
+        self.screen.blit(overlay, (0, 0))
+
+        # 2. Modal window container
+        modal_rect = rects["modal"]
+        pygame.draw.rect(self.screen, (24, 27, 36), modal_rect, border_radius=12)
+        pygame.draw.rect(self.screen, (55, 62, 78), modal_rect, width=2, border_radius=12)
+
+        # Header bar
+        header_rect = pygame.Rect(modal_rect.x, modal_rect.y, modal_rect.width, 50)
+        pygame.draw.rect(self.screen, (32, 36, 48), header_rect, border_top_left_radius=12, border_top_right_radius=12)
+        pygame.draw.line(self.screen, (48, 55, 70), (modal_rect.x, modal_rect.y + 50), (modal_rect.right, modal_rect.y + 50), 1)
+
+        title_surf = self.font_header.render("CUSTOM ASSET PACK CREATOR", True, TEXT_PRIMARY)
+        self.screen.blit(title_surf, (modal_rect.x + 20, modal_rect.y + 10))
+        subtitle_surf = self.font_micro.render("Choose local pictures for each piece • Auto-resized to fit board squares", True, TEXT_MUTED)
+        self.screen.blit(subtitle_surf, (modal_rect.x + 20, modal_rect.y + 30))
+
+        # Close button [X]
+        close_rect = rects["close"]
+        hov_close = close_rect.collidepoint(mouse_pos)
+        close_bg = CHECK_COLOR if hov_close else (44, 49, 62)
+        pygame.draw.rect(self.screen, close_bg, close_rect, border_radius=6)
+        close_lbl = self.font_small.render("✕", True, (255, 255, 255) if hov_close else TEXT_SECONDARY)
+        self.screen.blit(close_lbl, close_lbl.get_rect(center=close_rect.center))
+
+        # 3. Top bar: Pack name & Action buttons
+        name_lbl = self.font_small.render("Pack Name:", True, TEXT_SECONDARY)
+        self.screen.blit(name_lbl, (modal_rect.x + 20, rects["name_input"].centery - 8))
+
+        name_rect = rects["name_input"]
+        hov_name = name_rect.collidepoint(mouse_pos)
+        is_focused = getattr(state, "name_focused", False)
+        name_bg = (32, 38, 50) if is_focused else ((38, 43, 56) if hov_name else (22, 25, 34))
+        name_border = ACCENT_COLOR if is_focused else ((80, 90, 115) if hov_name else (55, 62, 78))
+        pygame.draw.rect(self.screen, name_bg, name_rect, border_radius=6)
+        pygame.draw.rect(self.screen, name_border, name_rect, width=2 if is_focused else 1, border_radius=6)
+
+        # Pack name text with blinking cursor
+        pack_name_str = getattr(state, "pack_name", "")
+        txt_surf = self.font_small.render(pack_name_str, True, TEXT_PRIMARY)
+        self.screen.blit(txt_surf, (name_rect.x + 8, name_rect.centery - txt_surf.get_height() // 2))
+
+        if is_focused and getattr(state, "cursor_visible", True):
+            cx = name_rect.x + 8 + txt_surf.get_width() + 2
+            cy1 = name_rect.centery - 9
+            cy2 = name_rect.centery + 9
+            pygame.draw.line(self.screen, ACCENT_COLOR, (cx, cy1), (cx, cy2), 2)
+
+        self._draw_button("📁 Import Folder...", rects["import_folder"], mouse_pos)
+        self._draw_button("↺ Reset All", rects["reset_all"], mouse_pos)
+
+        # 4. Piece Grid Section Headers
+        col_w = (modal_rect.width - 32 - 14) // 2
+        col_white_x = modal_rect.x + 16
+        col_black_x = modal_rect.x + 16 + col_w + 14
+
+        pygame.draw.circle(self.screen, (240, 240, 245), (col_white_x + 8, modal_rect.y + 110), 5)
+        w_sec_title = self.font_subtitle.render("WHITE PIECES (6)", True, (240, 240, 245))
+        self.screen.blit(w_sec_title, (col_white_x + 20, modal_rect.y + 103))
+
+        pygame.draw.circle(self.screen, (90, 95, 110), (col_black_x + 8, modal_rect.y + 110), 5)
+        b_sec_title = self.font_subtitle.render("BLACK PIECES (6)", True, (180, 185, 200))
+        self.screen.blit(b_sec_title, (col_black_x + 20, modal_rect.y + 103))
+
+        # 5. Piece Cards (12 items)
+        for spec in PIECE_SPECS:
+            code = spec["code"]
+            name = spec["name"]
+            card_rect = rects["cards"][code]
+            hov_card = card_rect.collidepoint(mouse_pos)
+
+            is_custom = code in getattr(state, "piece_paths", {})
+            card_bg = (36, 41, 54) if hov_card else (28, 32, 42)
+            card_border = (80, 90, 115) if hov_card else (45, 52, 68)
+
+            pygame.draw.rect(self.screen, card_bg, card_rect, border_radius=8)
+            pygame.draw.rect(self.screen, card_border, card_rect, width=1, border_radius=8)
+
+            # Thumbnail preview box (44x44)
+            thumb_box = pygame.Rect(card_rect.x + 4, card_rect.y + 4, 44, 44)
+            pygame.draw.rect(self.screen, (18, 20, 26), thumb_box, border_radius=6)
+            pygame.draw.rect(self.screen, (48, 55, 70), thumb_box, width=1, border_radius=6)
+
+            thumb = getattr(state, "preview_surfaces", {}).get(code)
+            if thumb is None and default_piece_images and code in default_piece_images:
+                # Fallback to scaled default surface
+                orig = default_piece_images[code]
+                thumb = pygame.transform.smoothscale(orig, (40, 40))
+
+            if thumb is not None:
+                tw, th = thumb.get_size()
+                tx = thumb_box.centerx - tw // 2
+                ty = thumb_box.centery - th // 2
+                self.screen.blit(thumb, (tx, ty))
+
+            # Piece Title & Status Tag
+            p_name_surf = self.font_small.render(name, True, TEXT_PRIMARY)
+            self.screen.blit(p_name_surf, (card_rect.x + 54, card_rect.y + 7))
+
+            if is_custom:
+                status_surf = self.font_micro.render("● Custom Image", True, ACCENT_COLOR)
+            else:
+                status_surf = self.font_micro.render("○ Default Image", True, TEXT_MUTED)
+            self.screen.blit(status_surf, (card_rect.x + 54, card_rect.y + 28))
+
+            # Browse button
+            self._draw_button("Browse...", rects["browse"][code], mouse_pos)
+
+            # Clear button (✕)
+            clr_rect = rects["clear"][code]
+            hov_clr = clr_rect.collidepoint(mouse_pos)
+            clr_bg = (55, 30, 30) if (hov_clr and is_custom) else ((50, 56, 72) if hov_clr else BTN_COLOR)
+            clr_border = CHECK_COLOR if (hov_clr and is_custom) else BTN_BORDER
+            pygame.draw.rect(self.screen, clr_bg, clr_rect, border_radius=6)
+            pygame.draw.rect(self.screen, clr_border, clr_rect, width=1, border_radius=6)
+            clr_txt = self.font_small.render("✕", True, CHECK_HOVER if (hov_clr and is_custom) else (TEXT_SECONDARY if is_custom else TEXT_MUTED))
+            self.screen.blit(clr_txt, clr_txt.get_rect(center=clr_rect.center))
+
+        # 6. Status Feedback Bar
+        st_rect = rects["status"]
+        pygame.draw.rect(self.screen, (18, 20, 26), st_rect, border_radius=6)
+        pygame.draw.rect(self.screen, (42, 48, 62), st_rect, width=1, border_radius=6)
+
+        msg = getattr(state, "status_message", "")
+        is_err = getattr(state, "status_is_error", False)
+        if is_err:
+            msg_color = CHECK_COLOR
+        elif "success" in msg.lower() or "matched" in msg.lower():
+            msg_color = ACCENT_COLOR
+        else:
+            msg_color = TEXT_SECONDARY
+
+        st_lbl = self.font_micro.render(msg, True, msg_color)
+        self.screen.blit(st_lbl, (st_rect.x + 10, st_rect.centery - st_lbl.get_height() // 2))
+
+        cnt = getattr(state, "custom_count", 0)
+        cnt_lbl = self.font_micro.render(f"Customized: {cnt}/12 pieces", True, ACCENT_COLOR if cnt > 0 else TEXT_MUTED)
+        self.screen.blit(cnt_lbl, (st_rect.right - cnt_lbl.get_width() - 10, st_rect.centery - cnt_lbl.get_height() // 2))
+
+        # 7. Action Buttons (Cancel, Save & Apply)
+        self._draw_button("Cancel", rects["cancel"], mouse_pos)
+        self._draw_button("✔ Save & Apply Pack", rects["save"], mouse_pos, accent=True)
+
+        return rects
+
 
     # -------------------------------------------------------------------------
     # UNO Card Visual Graphics & Animations
@@ -2298,6 +2554,7 @@ class ChessRenderer:
         # 4. Theme Selection Section
         theme_lbl = self.font_subtitle.render("PIECE & BOARD THEME", True, TEXT_MUTED)
         self.screen.blit(theme_lbl, (px, 308))
+        self._draw_button("+ New Pack", self.buttons.create_pack, mouse_pos, accent=True)
 
         pack_info = f"{active_pack_name} ({active_pack_index + 1}/{total_packs})"
         pack_text = self.font_small.render(pack_info, True, TEXT_PRIMARY)

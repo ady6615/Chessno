@@ -46,6 +46,7 @@ from bishop_dash_engine import BishopDashMode
 from hero_mode_engine import HeroMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
+from asset_pack_creator import AssetPackCreatorState, save_asset_pack, sanitize_pack_name
 
 # Window dimensions
 WINDOW_WIDTH = 1200
@@ -125,6 +126,8 @@ def main() -> None:
     timer = ChessTimer(time_limit_seconds=300)
     bot_controller = ChessBotController(difficulty=BotDifficulty.CASUAL)
     mode_selector_open: bool = False
+    asset_creator_state = AssetPackCreatorState()
+    asset_creator_open: bool = False
     selected_square: Optional[chess.Square] = None
     legal_destinations: List[chess.Square] = []
     dragging: bool = False
@@ -267,6 +270,8 @@ def main() -> None:
         renderer.update_reset_return(dt)
         renderer.update_start_bounce(dt)
         renderer.update_rook_dash(dt)
+        if asset_creator_open:
+            asset_creator_state.update(dt)
 
         # Ensure virtual_screen and renderer layout dynamically match current screen dimensions
         disp_w, disp_h = screen.get_size()
@@ -281,7 +286,7 @@ def main() -> None:
         mouse_pos = pygame.mouse.get_pos()
 
         # Update match chess clock countdown
-        if not mode_selector_open and not game_state.is_game_over():
+        if not mode_selector_open and not asset_creator_open and not game_state.is_game_over():
             timeout_loser = timer.update(dt)
             if timeout_loser is not None:
                 game_state.set_timeout(timeout_loser)
@@ -294,6 +299,7 @@ def main() -> None:
         # AI Bot Thinking & Move Execution (Singleplayer mode)
         if (
             not mode_selector_open
+            and not asset_creator_open
             and pending_promotion is None
             and not game_state.is_game_over()
             and not renderer.is_dash_animating()
@@ -367,6 +373,77 @@ def main() -> None:
                 if renderer.buttons.fullscreen.collidepoint(event_pos):
                     toggle_fullscreen()
                     continue
+
+                # 0b. Asset Pack Creator Modal Intercept
+                if asset_creator_open:
+                    c_rects = renderer.get_asset_pack_creator_rects()
+                    if c_rects["close"].collidepoint(event_pos) or c_rects["cancel"].collidepoint(event_pos):
+                        asset_creator_open = False
+                        timer.resume()
+                        continue
+
+                    if c_rects["name_input"].collidepoint(event_pos):
+                        asset_creator_state.name_focused = True
+                        continue
+                    else:
+                        asset_creator_state.name_focused = False
+
+                    if c_rects["import_folder"].collidepoint(event_pos):
+                        asset_creator_state.browse_folder_and_auto_match()
+                        continue
+
+                    if c_rects["reset_all"].collidepoint(event_pos):
+                        asset_creator_state.reset(default_piece_images=piece_images)
+                        continue
+
+                    clicked_piece = False
+                    for code, b_rect in c_rects["browse"].items():
+                        if b_rect.collidepoint(event_pos):
+                            asset_creator_state.browse_for_piece(code)
+                            clicked_piece = True
+                            break
+                    if clicked_piece:
+                        continue
+
+                    clicked_clr = False
+                    for code, clr_r in c_rects["clear"].items():
+                        if clr_r.collidepoint(event_pos):
+                            asset_creator_state.clear_piece_image(code, default_piece_images=piece_images)
+                            clicked_clr = True
+                            break
+                    if clicked_clr:
+                        continue
+
+                    if c_rects["save"].collidepoint(event_pos):
+                        ok, msg = save_asset_pack(
+                            asset_creator_state.pack_name,
+                            asset_creator_state.piece_paths,
+                            default_piece_images=piece_images,
+                        )
+                        if ok:
+                            available_packs = Assets.get_available_packs()
+                            clean_p_name = sanitize_pack_name(asset_creator_state.pack_name)
+                            if clean_p_name in available_packs:
+                                new_board, new_pieces = Assets.switch_asset_pack(clean_p_name)
+                                board_image = new_board
+                                piece_images = new_pieces
+                                active_pack_index = available_packs.index(clean_p_name)
+                            Assets.play_sound("game_start")
+                            asset_creator_open = False
+                            timer.resume()
+                        else:
+                            asset_creator_state.status_message = msg
+                            asset_creator_state.status_is_error = True
+                        continue
+
+                    # If clicked inside modal, consume event
+                    if c_rects["modal"].collidepoint(event_pos):
+                        continue
+                    else:
+                        # Clicked outside modal -> dismiss
+                        asset_creator_open = False
+                        timer.resume()
+                        continue
 
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
@@ -509,6 +586,12 @@ def main() -> None:
                 if (renderer.buttons.white_clock.collidepoint(event_pos) or renderer.buttons.black_clock.collidepoint(event_pos)) and len(game_state.move_history) == 0:
                     timer.cycle_preset()
                     Assets.play_sound("move")
+                    continue
+
+                if renderer.buttons.create_pack.collidepoint(event_pos):
+                    asset_creator_state.reset(default_piece_images=piece_images)
+                    asset_creator_open = True
+                    timer.pause()
                     continue
 
                 if renderer.buttons.prev_theme.collidepoint(event_pos):
@@ -695,6 +778,16 @@ def main() -> None:
             # KEYBOARD SHORTCUTS
             # ---------------------------------------------------------
             elif event.type == pygame.KEYDOWN:
+                if asset_creator_open:
+                    if event.key == pygame.K_ESCAPE and not asset_creator_state.name_focused:
+                        asset_creator_open = False
+                        timer.resume()
+                        continue
+                    consumed = asset_creator_state.handle_keydown(event)
+                    if consumed:
+                        continue
+                    continue
+
                 # Fullscreen Shortcuts (F11 or Alt+Enter)
                 if event.key == pygame.K_F11:
                     toggle_fullscreen()
@@ -741,6 +834,11 @@ def main() -> None:
 
                 elif event.key == pygame.K_m:
                     Assets.toggle_sound()
+
+                elif event.key == pygame.K_p and not mode_selector_open and not asset_creator_open:
+                    asset_creator_state.reset(default_piece_images=piece_images)
+                    asset_creator_open = True
+                    timer.pause()
 
                 elif event.key == pygame.K_SPACE:
                     if mode_selector_open:
@@ -858,12 +956,18 @@ def main() -> None:
         if mode_selector_open:
             renderer.draw_mode_selector_modal(mouse_pos, timer=timer, bot_controller=bot_controller)
 
+        # 7b. Custom Asset Pack Creator Modal
+        if asset_creator_open:
+            renderer.draw_asset_pack_creator_modal(
+                mouse_pos=mouse_pos,
+                state=asset_creator_state,
+                default_piece_images=piece_images,
+            )
+
         # -------------------------------------------------------------
         # PRESENTATION (Direct 1:1 blit to display)
         # -------------------------------------------------------------
         screen.blit(virtual_screen, (0, 0))
-        pygame.display.flip()
-
         pygame.display.flip()
 
     pygame.quit()
