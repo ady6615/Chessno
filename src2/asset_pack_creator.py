@@ -117,6 +117,145 @@ def resize_image_for_board(surface: pygame.Surface, target_max: Tuple[int, int] 
     return pygame.transform.smoothscale(surface, (new_w, new_h))
 
 
+def match_piece_file(filepath: Path, siblings: Optional[List[Path]] = None) -> Optional[str]:
+    """
+    Intelligently identify the chess piece code (e.g. 'wa', 'bq') from a file path.
+    Supports:
+    - Standard project filenames: W_King.png, W_Knight.png, B_Rook.png, etc.
+    - Long names: white_king.png, black_queen.png, white_knight.png, etc.
+    - Inverted names: king_white.png, knight_black.png, rook_w.png, pawn_b.png, etc.
+    - Standard algebraic codes: wK.png, wN.png, wR.png, wB.png, wQ.png, wP.png, bK.png, etc.
+    - Chessno project codes: wa.png, wk.png, wr.png, wb.png, wq.png, wp.png, ba.png, etc.
+    - Directory-based: white/king.png, black/knight.png, w/r.png, b/p.png, etc.
+    - Wikimedia/cburnett sets: Chess_klt45.png, Chess_ndt45.png, etc.
+    - Colloquial piece terms: horse -> knight, castle/tower -> rook.
+    """
+    p = Path(filepath)
+    stem = p.stem.lower()
+    parent = p.parent.name.lower()
+
+    # 1. Color detection
+    color = None
+
+    # Check parent directory name
+    if parent in ("white", "whites", "w", "light", "white_pieces", "white-pieces"):
+        color = "w"
+    elif parent in ("black", "blacks", "b", "dark", "black_pieces", "black-pieces"):
+        color = "b"
+
+    # Check Wikimedia format (e.g. Chess_klt45, Chess_kdt45)
+    if not color:
+        if "lt" in stem or "_l" in stem or "-l" in stem:
+            color = "w"
+        elif "dt" in stem or "_d" in stem or "-d" in stem:
+            color = "b"
+
+    # Check prefixes
+    if not color:
+        if stem.startswith(("white_", "white-", "white ", "white.", "w_", "w-", "w.")):
+            color = "w"
+        elif stem.startswith(("black_", "black-", "black ", "black.", "b_", "b-", "b.")):
+            color = "b"
+
+    # Check suffixes
+    if not color:
+        if stem.endswith(("_white", "-white", " white", ".white", "_w", "-w")):
+            color = "w"
+        elif stem.endswith(("_black", "-black", " black", ".black", "_b", "-b")):
+            color = "b"
+
+    # Check 2-letter codes: e.g. wp, wr, wn, wb, wq, wk, wa
+    if not color and len(stem) == 2:
+        if stem[0] == "w":
+            color = "w"
+        elif stem[0] == "b":
+            color = "b"
+
+    # Token matching in separated words
+    if not color:
+        words = re.split(r"[_\-\s.]+", stem)
+        if any(w in ("white", "w", "light") for w in words):
+            color = "w"
+        elif any(w in ("black", "b", "dark") for w in words):
+            color = "b"
+
+    if not color:
+        return None
+
+    # 2. Piece kind detection
+    # CRITICAL: Full piece names MUST be tested BEFORE single-letter abbreviations!
+    # Otherwise 'rook' ends with 'k' -> mistakenly matches King!
+    # And 'knight' contains '_k' -> mistakenly matches King!
+    # And 'pawn' ends with 'n' -> mistakenly matches Knight!
+
+    # A) Knight (check knight before king so 'knight' is never mistaken for 'k'!)
+    if any(k in stem for k in ("knight", "night", "horse", "caballo", "cheval", "springer", "cavalo")):
+        return f"{color}k"
+
+    # B) King
+    if any(k in stem for k in ("king", "könig", "koenig", "roi", "rey")):
+        return f"{color}a"
+
+    # C) Queen
+    if any(k in stem for k in ("queen", "dame", "dama", "reine")):
+        return f"{color}q"
+
+    # D) Rook
+    if any(k in stem for k in ("rook", "castle", "tower", "turm", "torre", "tour")):
+        return f"{color}r"
+
+    # E) Bishop
+    if any(k in stem for k in ("bishop", "alfil", "fou", "läufer", "laeufer", "alfiere")):
+        return f"{color}b"
+
+    # F) Pawn
+    if any(k in stem for k in ("pawn", "peon", "peón", "pion", "bauer", "pedina")):
+        return f"{color}p"
+
+    # 3. Short Notation / Abbreviations
+    # Strip color and common prefixes/suffixes
+    cleaned = stem
+    for pfx in ("white_", "white-", "white ", "white.", "w_", "w-", "w.", "chess_", "chess-"):
+        if cleaned.startswith(pfx):
+            cleaned = cleaned[len(pfx):]
+    for sfx in ("_white", "-white", " white", ".white", "_w", "-w", "lt45", "dt45", "lt", "dt", "45"):
+        if cleaned.endswith(sfx):
+            cleaned = cleaned[:-len(sfx)]
+    cleaned = cleaned.strip("_- .")
+
+    # If stem was 2 chars like 'wr' or 'bn':
+    if len(stem) == 2 and stem[0] in ("w", "b"):
+        cleaned = stem[1]
+
+    # Standard algebraic notation:
+    # K=King ('a'), Q=Queen ('q'), R=Rook ('r'), B=Bishop ('b'), N=Knight ('k'), P=Pawn ('p')
+    # Chessno notation:
+    # A=King ('a'), K=Knight ('k')
+    if cleaned in ("n", "kn", "kt"):
+        return f"{color}k"
+    elif cleaned in ("a",):
+        return f"{color}a"
+    elif cleaned in ("k",):
+        # Disambiguate 'k':
+        # If siblings contain 'wa' or 'ba' (Chessno naming), then 'k' is Knight ('k').
+        # Otherwise, in standard algebraic chess notation (K=King, N=Knight), 'k' is King ('a').
+        if siblings:
+            sib_stems = {s.stem.lower() for s in siblings}
+            if f"{color}a" in sib_stems or f"{color}_a" in sib_stems:
+                return f"{color}k"
+        return f"{color}a"
+    elif cleaned in ("q",):
+        return f"{color}q"
+    elif cleaned in ("r",):
+        return f"{color}r"
+    elif cleaned in ("b",):
+        return f"{color}b"
+    elif cleaned in ("p",):
+        return f"{color}p"
+
+    return None
+
+
 def save_asset_pack(
     pack_name: str,
     piece_paths: Dict[str, str],
@@ -188,8 +327,8 @@ def save_asset_pack(
 
             # Case B: Unassigned piece -> copy default piece image
             else:
-                default_file = default_pack_dir / "pieces" / filename
-                if default_file.is_file():
+                default_file = Assets.resolve_file_case_insensitive(default_pack_dir / "pieces", filename)
+                if default_file and default_file.is_file():
                     shutil.copy(default_file, dest_file)
                 elif default_piece_images and code in default_piece_images:
                     pygame.image.save(default_piece_images[code], str(dest_file))
@@ -292,59 +431,64 @@ class AssetPackCreatorState:
     def browse_folder_and_auto_match(self) -> None:
         """
         Open folder picker and automatically match filenames inside to piece codes.
-        Matches filenames containing 'king', 'queen', 'rook', 'bishop', 'knight', 'pawn'
-        along with 'w'/'white' or 'b'/'black'.
+        Recursively scans the folder (including white/, black/, pieces/ subdirectories),
+        matching all standard chess naming conventions.
         """
         folder = open_folder_dialog(title="Select Folder Containing Piece Images")
         if not folder or not os.path.isdir(folder):
             return
 
         folder_path = Path(folder)
-        matched_count = 0
         extensions = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
-        for f in folder_path.iterdir():
-            if not f.is_file() or f.suffix.lower() not in extensions:
-                continue
+        # Collect all image files recursively across top-level and subdirectories
+        all_image_files: List[Path] = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                p = Path(root) / file
+                if p.suffix.lower() in extensions:
+                    all_image_files.append(p)
 
+        if not all_image_files:
+            self.status_message = "No image files (.png, .jpg, .webp) found in selected folder."
+            self.status_is_error = True
+            return
+
+        # Pre-set pack name to folder name if still using placeholder default
+        if self.pack_name in ("CustomTheme", "") and folder_path.name:
+            clean_dir = sanitize_pack_name(folder_path.name)
+            if clean_dir and clean_dir.lower() != "default":
+                self.pack_name = clean_dir
+
+        # Check for board image in folder
+        for f in all_image_files:
             stem = f.stem.lower()
+            if any(b_name in stem for b_name in ("board", "chessboard", "defaultboard")):
+                self.custom_board_path = str(f)
+                break
 
-            # Identify team color
-            color = None
-            if "white" in stem or stem.startswith("w_") or stem.startswith("w-") or stem.startswith("w"):
-                color = "w"
-            elif "black" in stem or stem.startswith("b_") or stem.startswith("b-") or stem.startswith("b"):
-                color = "b"
+        matched_count = 0
+        matched_codes = set()
 
-            if not color:
-                continue
+        for f in all_image_files:
+            code = match_piece_file(f, siblings=all_image_files)
+            if code and code in SPEC_BY_CODE and code not in matched_codes:
+                if self.set_piece_image(code, str(f)):
+                    matched_codes.add(code)
+                    matched_count += 1
 
-            # Identify piece kind
-            kind = None
-            if "king" in stem or stem.endswith("k") or "_k" in stem or "-k" in stem:
-                kind = "a"
-            elif "queen" in stem or stem.endswith("q") or "_q" in stem or "-q" in stem:
-                kind = "q"
-            elif "rook" in stem or stem.endswith("r") or "_r" in stem or "-r" in stem:
-                kind = "r"
-            elif "bishop" in stem or stem.endswith("b") or "_b" in stem or "-b" in stem:
-                kind = "b"
-            elif "knight" in stem or stem.endswith("n") or "_n" in stem or "-n" in stem:
-                kind = "k"
-            elif "pawn" in stem or stem.endswith("p") or "_p" in stem or "-p" in stem:
-                kind = "p"
-
-            if color and kind:
-                code = f"{color}{kind}"
-                if code in SPEC_BY_CODE:
-                    if self.set_piece_image(code, str(f)):
-                        matched_count += 1
-
-        if matched_count > 0:
-            self.status_message = f"Auto-matched {matched_count} piece images from folder!"
+        if matched_count == 12:
+            self.status_message = f"Perfect match! All 12 pieces imported from '{folder_path.name}'."
+            self.status_is_error = False
+        elif matched_count > 0:
+            missing_names = [s["name"] for s in PIECE_SPECS if s["code"] not in matched_codes]
+            missing_str = ", ".join(missing_names[:3])
+            if len(missing_names) > 3:
+                missing_str += f" (+{len(missing_names) - 3} more)"
+            self.status_message = f"Imported {matched_count}/12 pieces! Missing: {missing_str}."
             self.status_is_error = False
         else:
-            self.status_message = "No matching piece images found in selected folder."
+            self.status_message = "Could not identify piece names in selected folder."
             self.status_is_error = True
 
     def update(self, dt: float) -> None:

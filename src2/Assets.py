@@ -384,19 +384,22 @@ def load_assets(pack_name: Optional[str] = None) -> Tuple[pygame.Surface, Dict[s
 
     # 1. Locate and load board image
     boards_dir = pack_dir / "Boards"
-    if not boards_dir.is_dir():
-        raise FileNotFoundError(
-            f"Asset pack '{pack_name}' is missing the required 'Boards' directory: {boards_dir}"
-        )
+    board_path = None
+    if boards_dir.is_dir():
+        board_path = resolve_file_case_insensitive(boards_dir, "DefaultBoard.png")
+        if not board_path:
+            # Fall back to any image in Boards folder
+            board_images = [f for f in boards_dir.iterdir() if f.is_file() and f.suffix.lower() in [".png", ".jpg", ".jpeg"]]
+            if board_images:
+                board_path = board_images[0]
 
-    board_path = resolve_file_case_insensitive(boards_dir, "DefaultBoard.png")
     if not board_path:
-        # Fall back to any image in Boards folder
-        board_images = [f for f in boards_dir.iterdir() if f.is_file() and f.suffix.lower() in [".png", ".jpg", ".jpeg"]]
-        if board_images:
-            board_path = board_images[0]
+        # Fall back to default board
+        default_board = ASSET_PACKS_DIR / "Default" / "Boards" / "DefaultBoard.png"
+        if default_board.is_file():
+            board_path = default_board
         else:
-            raise FileNotFoundError(f"No board image found in: {boards_dir}")
+            raise FileNotFoundError(f"No board image found for asset pack '{pack_name}'.")
 
     board = load_image(board_path)
     board = pygame.transform.smoothscale(board, (BOARD_WIDTH, BOARD_HEIGHT))
@@ -413,6 +416,25 @@ def load_assets(pack_name: Optional[str] = None) -> Tuple[pygame.Surface, Dict[s
 
     for code, expected_filename in PIECE_FILES.items():
         piece_path = resolve_file_case_insensitive(pieces_dir, expected_filename)
+        if not piece_path:
+            # Check for alternate filenames in pieces directory using smart matcher
+            try:
+                from asset_pack_creator import match_piece_file
+                all_children = [c for c in pieces_dir.iterdir() if c.is_file() and c.suffix.lower() in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]]
+                for child in all_children:
+                    if match_piece_file(child, siblings=all_children) == code:
+                        piece_path = child
+                        break
+            except Exception:
+                pass
+
+        if not piece_path:
+            # Fallback to Default pack piece instead of failing
+            default_pack_dir = ASSET_PACKS_DIR / "Default" / "pieces"
+            piece_path = resolve_file_case_insensitive(default_pack_dir, expected_filename)
+            if piece_path:
+                print(f"Notice: Piece '{code}' ({expected_filename}) missing in '{pack_name}', using default asset fallback.")
+
         if not piece_path:
             missing_pieces.append(f"{code} ({expected_filename})")
             continue
