@@ -2134,8 +2134,12 @@ class ChessRenderer:
             hov_card = card_rect.collidepoint(mouse_pos)
 
             is_custom = code in getattr(state, "piece_paths", {})
-            card_bg = (36, 41, 54) if hov_card else (28, 32, 42)
-            card_border = (80, 90, 115) if hov_card else (45, 52, 68)
+            if is_custom:
+                card_bg = (34, 46, 42) if hov_card else (26, 36, 33)
+                card_border = ACCENT_HOVER if hov_card else ACCENT_COLOR
+            else:
+                card_bg = (36, 41, 54) if hov_card else (28, 32, 42)
+                card_border = (80, 90, 115) if hov_card else (45, 52, 68)
 
             pygame.draw.rect(self.screen, card_bg, card_rect, border_radius=8)
             pygame.draw.rect(self.screen, card_border, card_rect, width=1, border_radius=8)
@@ -2155,16 +2159,21 @@ class ChessRenderer:
                 tw, th = thumb.get_size()
                 tx = thumb_box.centerx - tw // 2
                 ty = thumb_box.centery - th // 2
-                self.screen.blit(thumb, (tx, ty))
+                if not is_custom:
+                    ghost_thumb = thumb.copy()
+                    ghost_thumb.set_alpha(100)
+                    self.screen.blit(ghost_thumb, (tx, ty))
+                else:
+                    self.screen.blit(thumb, (tx, ty))
 
             # Piece Title & Status Tag
             p_name_surf = self.font_small.render(name, True, TEXT_PRIMARY)
             self.screen.blit(p_name_surf, (card_rect.x + 54, card_rect.y + 7))
 
             if is_custom:
-                status_surf = self.font_micro.render("● Custom Image", True, ACCENT_COLOR)
+                status_surf = self.font_micro.render("● Custom Picture", True, ACCENT_COLOR)
             else:
-                status_surf = self.font_micro.render("○ Default Image", True, TEXT_MUTED)
+                status_surf = self.font_micro.render("○ Using Default", True, TEXT_MUTED)
             self.screen.blit(status_surf, (card_rect.x + 54, card_rect.y + 28))
 
             # Browse button

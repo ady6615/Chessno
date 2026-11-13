@@ -481,8 +481,10 @@ def get_available_packs() -> List[str]:
     for folder in ASSET_PACKS_DIR.iterdir():
         if not folder.is_dir():
             continue
-        # A valid pack must contain Boards and pieces directories
-        if (folder / "Boards").is_dir() and (folder / "pieces").is_dir():
+        # A valid pack must contain pieces directory (or pieces images)
+        if (folder / "pieces").is_dir():
+            packs.append(folder.name)
+        elif (folder / "Boards").is_dir() and any(folder.glob("*.png")):
             packs.append(folder.name)
 
     return sorted(packs)

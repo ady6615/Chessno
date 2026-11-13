@@ -41,6 +41,7 @@ from asset_pack_creator import (
     sanitize_pack_name,
     resize_image_for_board,
     save_asset_pack,
+    match_piece_file,
     AssetPackCreatorState,
 )
 from renderer import ChessRenderer
@@ -292,6 +293,101 @@ class TestAssetPackCreator(unittest.TestCase):
         )
         self.assertIsNotNone(rects)
         self.assertIn("save", rects)
+
+    def test_match_piece_file_naming_conventions(self):
+        """Verify match_piece_file accurately matches standard, long, short, and colloquial names."""
+        cases = [
+            ("W_King.png", "wa"),
+            ("W_Queen.png", "wq"),
+            ("W_Rook.png", "wr"),
+            ("W_Bishop.png", "wb"),
+            ("W_Knight.png", "wk"),
+            ("W_Pawn.png", "wp"),
+            ("B_King.png", "ba"),
+            ("B_Queen.png", "bq"),
+            ("B_Rook.png", "br"),
+            ("B_Bishop.png", "bb"),
+            ("B_Knight.png", "bk"),
+            ("B_Pawn.png", "bp"),
+            ("white_king.png", "wa"),
+            ("white_knight.png", "wk"),
+            ("white_rook.png", "wr"),
+            ("white_pawn.png", "wp"),
+            ("black_king.png", "ba"),
+            ("black_knight.png", "bk"),
+            ("black_rook.png", "br"),
+            ("black_pawn.png", "bp"),
+            ("king_w.png", "wa"),
+            ("queen_w.png", "wq"),
+            ("rook_w.png", "wr"),
+            ("bishop_w.png", "wb"),
+            ("knight_w.png", "wk"),
+            ("pawn_w.png", "wp"),
+            ("white/king.png", "wa"),
+            ("white/knight.png", "wk"),
+            ("black/rook.png", "br"),
+            ("wK.png", "wa"),
+            ("wQ.png", "wq"),
+            ("wR.png", "wr"),
+            ("wB.png", "wb"),
+            ("wN.png", "wk"),
+            ("wP.png", "wp"),
+            ("Chess_klt45.png", "wa"),
+            ("Chess_qlt45.png", "wq"),
+            ("Chess_rlt45.png", "wr"),
+            ("Chess_blt45.png", "wb"),
+            ("Chess_nlt45.png", "wk"),
+            ("Chess_plt45.png", "wp"),
+            ("Chess_kdt45.png", "ba"),
+            ("Chess_ndt45.png", "bk"),
+            ("white-horse.png", "wk"),
+            ("black-castle.png", "br"),
+        ]
+        for path_str, expected_code in cases:
+            matched = match_piece_file(Path(path_str))
+            self.assertEqual(matched, expected_code, f"Failed matching {path_str}: got {matched}, expected {expected_code}")
+
+    def test_browse_folder_and_auto_match_subdirectories_and_board(self):
+        """Verify folder auto-match scans subfolders (white/, black/) and sets custom board."""
+        state = AssetPackCreatorState()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            w_dir = tmp_path / "white"
+            b_dir = tmp_path / "black"
+            w_dir.mkdir()
+            b_dir.mkdir()
+
+            dummy_surf = pygame.Surface((30, 30))
+            dummy_surf.fill((255, 255, 255))
+
+            # Create piece files in subdirectories
+            for name, code in [
+                ("king.png", "wa"), ("queen.png", "wq"), ("rook.png", "wr"),
+                ("bishop.png", "wb"), ("knight.png", "wk"), ("pawn.png", "wp"),
+            ]:
+                pygame.image.save(dummy_surf, str(w_dir / name))
+
+            for name, code in [
+                ("king.png", "ba"), ("queen.png", "bq"), ("rook.png", "br"),
+                ("bishop.png", "bb"), ("knight.png", "bk"), ("pawn.png", "bp"),
+            ]:
+                pygame.image.save(dummy_surf, str(b_dir / name))
+
+            # Create board file
+            board_file = tmp_path / "chessboard.png"
+            pygame.image.save(dummy_surf, str(board_file))
+
+            # Simulate folder selection by patching open_folder_dialog
+            import asset_pack_creator
+            orig_dialog = asset_pack_creator.open_folder_dialog
+            try:
+                asset_pack_creator.open_folder_dialog = lambda title: str(tmp_path)
+                state.browse_folder_and_auto_match()
+                self.assertEqual(state.custom_count, 12)
+                self.assertIsNotNone(state.custom_board_path)
+                self.assertIn("Perfect match", state.status_message)
+            finally:
+                asset_pack_creator.open_folder_dialog = orig_dialog
 
 
 if __name__ == "__main__":
