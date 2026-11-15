@@ -31,6 +31,7 @@ from snail_engine import ImmortalSnailMode
 from timer import ChessTimer
 from ai_bot import BotDifficulty, BOT_DIFFICULTY_METADATA, ChessBotController
 from asset_pack_creator import PIECE_SPECS
+from sound_pack_creator import SOUND_SPECS, SPEC_BY_ID
 import Assets
 
 # Theme and UI Color Palette (Modern Slate & Obsidian Dark Theme)
@@ -78,7 +79,8 @@ class UIButtons:
         self.black_clock = pygame.Rect(panel_x + clock_w + 8, 100, clock_w, 46)
 
         # Theme switching buttons
-        self.create_pack = pygame.Rect(panel_x + panel_width - 88, 304, 88, 22)
+        self.create_pack = pygame.Rect(panel_x + panel_width - 150, 304, 68, 22)
+        self.create_sound_pack = pygame.Rect(panel_x + panel_width - 78, 304, 78, 22)
         self.prev_theme = pygame.Rect(panel_x, 328, 65, 30)
         self.next_theme = pygame.Rect(panel_x + panel_width - 65, 328, 65, 30)
         
@@ -2216,6 +2218,274 @@ class ChessRenderer:
 
         return rects
 
+    # -------------------------------------------------------------------------
+    # Custom Sound Asset Pack Creator Modal
+    # -------------------------------------------------------------------------
+
+    def get_sound_pack_creator_rects(self) -> Dict[str, Any]:
+        """
+        Calculates and returns interactive rects for the Sound Asset Pack Creator modal.
+        Provides bounding boxes for:
+        - modal window rect
+        - close button [X]
+        - sound pack name input box
+        - folder batch import button
+        - reset all button
+        - 11 sound cards, test/play buttons, browse buttons, and clear buttons
+        - status message bar
+        - cancel button
+        - save & apply sound pack button
+        """
+        screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
+
+        modal_w = min(860, max(680, screen_w - 40))
+        modal_h = min(610, max(540, screen_h - 40))
+        modal_x = (screen_w - modal_w) // 2
+        modal_y = (screen_h - modal_h) // 2
+
+        modal_rect = pygame.Rect(modal_x, modal_y, modal_w, modal_h)
+        close_rect = pygame.Rect(modal_x + modal_w - 36, modal_y + 12, 24, 24)
+
+        top_y = modal_y + 58
+        name_input_rect = pygame.Rect(modal_x + 130, top_y, 210, 30)
+        folder_btn_rect = pygame.Rect(modal_x + 350, top_y, 140, 30)
+        reset_btn_rect = pygame.Rect(modal_x + 500, top_y, 110, 30)
+
+        # 2-column layout for the 11 sounds
+        col_w = (modal_w - 32 - 14) // 2
+        col_1_x = modal_x + 16
+        col_2_x = modal_x + 16 + col_w + 14
+
+        grid_y = modal_y + 124
+        card_h = 52
+        row_gap = 6
+
+        play_buttons: Dict[str, pygame.Rect] = {}
+        browse_buttons: Dict[str, pygame.Rect] = {}
+        clear_buttons: Dict[str, pygame.Rect] = {}
+        card_rects: Dict[str, pygame.Rect] = {}
+
+        # Column 1 sounds (6 sounds)
+        col1_ids = ["check", "game_over", "move", "capture", "castle", "promotion"]
+        for idx, sid in enumerate(col1_ids):
+            card_y = grid_y + idx * (card_h + row_gap)
+            c_rect = pygame.Rect(col_1_x, card_y, col_w, card_h)
+            card_rects[sid] = c_rect
+            play_buttons[sid] = pygame.Rect(col_1_x + col_w - 148, card_y + 11, 48, 30)
+            browse_buttons[sid] = pygame.Rect(col_1_x + col_w - 96, card_y + 11, 62, 30)
+            clear_buttons[sid] = pygame.Rect(col_1_x + col_w - 30, card_y + 11, 26, 30)
+
+        # Column 2 sounds (5 sounds)
+        col2_ids = ["game_start", "invalid", "dash", "card_flip", "card_shuffle"]
+        for idx, sid in enumerate(col2_ids):
+            card_y = grid_y + idx * (card_h + row_gap)
+            c_rect = pygame.Rect(col_2_x, card_y, col_w, card_h)
+            card_rects[sid] = c_rect
+            play_buttons[sid] = pygame.Rect(col_2_x + col_w - 148, card_y + 11, 48, 30)
+            browse_buttons[sid] = pygame.Rect(col_2_x + col_w - 96, card_y + 11, 62, 30)
+            clear_buttons[sid] = pygame.Rect(col_2_x + col_w - 30, card_y + 11, 26, 30)
+
+        status_y = modal_y + modal_h - 78
+        status_rect = pygame.Rect(modal_x + 16, status_y, modal_w - 32, 28)
+
+        bottom_y = modal_y + modal_h - 44
+        cancel_rect = pygame.Rect(modal_x + modal_w - 310, bottom_y, 110, 32)
+        save_rect = pygame.Rect(modal_x + modal_w - 190, bottom_y, 174, 32)
+
+        return {
+            "modal": modal_rect,
+            "close": close_rect,
+            "name_input": name_input_rect,
+            "import_folder": folder_btn_rect,
+            "reset_all": reset_btn_rect,
+            "play": play_buttons,
+            "browse": browse_buttons,
+            "clear": clear_buttons,
+            "cards": card_rects,
+            "status": status_rect,
+            "cancel": cancel_rect,
+            "save": save_rect,
+        }
+
+    def draw_sound_pack_creator_modal(
+        self,
+        mouse_pos: Tuple[int, int],
+        state: Any,
+    ) -> Dict[str, Any]:
+        """
+        Renders the interactive Sound Asset Pack Creator modal panel.
+        Displays:
+        - Sleek translucent backdrop and styled modal window
+        - Sound pack name text input field with active focus border and blinking cursor
+        - Batch folder import and reset buttons
+        - 11 sound event cards with icons, descriptions, status tags, test playback buttons,
+          browse buttons, and clear buttons
+        - Status feedback message and customization counter
+        - Save & Apply Sound Pack and Cancel action buttons
+        """
+        rects = self.get_sound_pack_creator_rects()
+        screen_w = self.screen.get_width()
+        screen_h = self.screen.get_height()
+
+        # 1. Semi-translucent backdrop overlay
+        overlay = pygame.Surface((screen_w, screen_h), pygame.SRCALPHA)
+        overlay.fill((10, 12, 16, 225))
+        self.screen.blit(overlay, (0, 0))
+
+        # 2. Modal window container
+        modal_rect = rects["modal"]
+        pygame.draw.rect(self.screen, (24, 27, 36), modal_rect, border_radius=12)
+        pygame.draw.rect(self.screen, (55, 62, 78), modal_rect, width=2, border_radius=12)
+
+        # Header bar
+        header_rect = pygame.Rect(modal_rect.x, modal_rect.y, modal_rect.width, 50)
+        pygame.draw.rect(self.screen, (32, 36, 48), header_rect, border_top_left_radius=12, border_top_right_radius=12)
+        pygame.draw.line(self.screen, (48, 55, 70), (modal_rect.x, modal_rect.y + 50), (modal_rect.right, modal_rect.y + 50), 1)
+
+        title_surf = self.font_header.render("CUSTOM SOUND PACK CREATOR", True, TEXT_PRIMARY)
+        self.screen.blit(title_surf, (modal_rect.x + 20, modal_rect.y + 10))
+        subtitle_surf = self.font_micro.render("Choose custom audio for each sound event • Check, Checkmate, Move, Capture, etc.", True, TEXT_MUTED)
+        self.screen.blit(subtitle_surf, (modal_rect.x + 20, modal_rect.y + 30))
+
+        # Close button [X]
+        close_rect = rects["close"]
+        hov_close = close_rect.collidepoint(mouse_pos)
+        close_bg = CHECK_COLOR if hov_close else (44, 49, 62)
+        pygame.draw.rect(self.screen, close_bg, close_rect, border_radius=6)
+        close_lbl = self.font_small.render("✕", True, (255, 255, 255) if hov_close else TEXT_SECONDARY)
+        self.screen.blit(close_lbl, close_lbl.get_rect(center=close_rect.center))
+
+        # 3. Top bar: Sound Pack Name & Action buttons
+        name_lbl = self.font_small.render("Sound Pack:", True, TEXT_SECONDARY)
+        self.screen.blit(name_lbl, (modal_rect.x + 20, rects["name_input"].centery - 8))
+
+        name_rect = rects["name_input"]
+        hov_name = name_rect.collidepoint(mouse_pos)
+        is_focused = getattr(state, "name_focused", False)
+        name_bg = (32, 38, 50) if is_focused else ((38, 43, 56) if hov_name else (22, 25, 34))
+        name_border = ACCENT_COLOR if is_focused else ((80, 90, 115) if hov_name else (55, 62, 78))
+        pygame.draw.rect(self.screen, name_bg, name_rect, border_radius=6)
+        pygame.draw.rect(self.screen, name_border, name_rect, width=2 if is_focused else 1, border_radius=6)
+
+        # Pack name text with blinking cursor
+        pack_name_str = getattr(state, "pack_name", "")
+        txt_surf = self.font_small.render(pack_name_str, True, TEXT_PRIMARY)
+        self.screen.blit(txt_surf, (name_rect.x + 8, name_rect.centery - txt_surf.get_height() // 2))
+
+        if is_focused and getattr(state, "cursor_visible", True):
+            cx = name_rect.x + 8 + txt_surf.get_width() + 2
+            cy1 = name_rect.centery - 9
+            cy2 = name_rect.centery + 9
+            pygame.draw.line(self.screen, ACCENT_COLOR, (cx, cy1), (cx, cy2), 2)
+
+        self._draw_button("📁 Import Folder...", rects["import_folder"], mouse_pos)
+        self._draw_button("↺ Reset All", rects["reset_all"], mouse_pos)
+
+        # 4. Section Headers
+        col_w = (modal_rect.width - 32 - 14) // 2
+        col_1_x = modal_rect.x + 16
+        col_2_x = modal_rect.x + 16 + col_w + 14
+
+        pygame.draw.circle(self.screen, ACCENT_COLOR, (col_1_x + 8, modal_rect.y + 110), 5)
+        sec1_title = self.font_subtitle.render("GAMEPLAY SOUNDS (6)", True, (240, 240, 245))
+        self.screen.blit(sec1_title, (col_1_x + 20, modal_rect.y + 103))
+
+        pygame.draw.circle(self.screen, CYAN_COLOR, (col_2_x + 8, modal_rect.y + 110), 5)
+        sec2_title = self.font_subtitle.render("MATCH & MODE SOUNDS (5)", True, (180, 185, 200))
+        self.screen.blit(sec2_title, (col_2_x + 20, modal_rect.y + 103))
+
+        # 5. Sound Cards (11 items)
+        currently_playing = getattr(state, "currently_playing_id", None)
+
+        for spec in SOUND_SPECS:
+            sid = spec["id"]
+            card_rect = rects["cards"][sid]
+            hov_card = card_rect.collidepoint(mouse_pos)
+
+            is_custom = sid in getattr(state, "sound_paths", {})
+            is_playing = (currently_playing == sid)
+
+            if is_playing:
+                card_bg = (30, 48, 55)
+                card_border = CYAN_COLOR
+            elif is_custom:
+                card_bg = (34, 46, 42) if hov_card else (26, 36, 33)
+                card_border = ACCENT_HOVER if hov_card else ACCENT_COLOR
+            else:
+                card_bg = (36, 41, 54) if hov_card else (28, 32, 42)
+                card_border = (80, 90, 115) if hov_card else (45, 52, 68)
+
+            pygame.draw.rect(self.screen, card_bg, card_rect, border_radius=8)
+            pygame.draw.rect(self.screen, card_border, card_rect, width=2 if (is_custom or is_playing) else 1, border_radius=8)
+
+            # Icon Box
+            icon_box = pygame.Rect(card_rect.x + 4, card_rect.y + 4, 44, 44)
+            pygame.draw.rect(self.screen, (18, 20, 26), icon_box, border_radius=6)
+            pygame.draw.rect(self.screen, (48, 55, 70), icon_box, width=1, border_radius=6)
+
+            # Sound icon
+            icon_txt = spec.get("icon", "🔊")
+            icon_surf = self.font_small.render(icon_txt, True, TEXT_PRIMARY)
+            self.screen.blit(icon_surf, icon_surf.get_rect(center=icon_box.center))
+
+            # Sound Name & Description / Tag
+            s_name_surf = self.font_small.render(spec["name"], True, TEXT_PRIMARY)
+            self.screen.blit(s_name_surf, (card_rect.x + 54, card_rect.y + 7))
+
+            if is_playing:
+                status_surf = self.font_micro.render("▶ Playing Preview...", True, CYAN_COLOR)
+            elif is_custom:
+                status_surf = self.font_micro.render("● Custom Audio", True, ACCENT_COLOR)
+            else:
+                status_surf = self.font_micro.render("○ Default Audio Tone", True, TEXT_MUTED)
+            self.screen.blit(status_surf, (card_rect.x + 54, card_rect.y + 28))
+
+            # Test / Play button
+            play_rect = rects["play"][sid]
+            play_label = "■ Stop" if is_playing else "▶ Play"
+            self._draw_button(play_label, play_rect, mouse_pos, accent=is_playing)
+
+            # Browse button
+            self._draw_button("Browse...", rects["browse"][sid], mouse_pos)
+
+            # Clear button (✕)
+            clr_rect = rects["clear"][sid]
+            hov_clr = clr_rect.collidepoint(mouse_pos)
+            clr_bg = (55, 30, 30) if (hov_clr and is_custom) else ((50, 56, 72) if hov_clr else BTN_COLOR)
+            clr_border = CHECK_COLOR if (hov_clr and is_custom) else BTN_BORDER
+            pygame.draw.rect(self.screen, clr_bg, clr_rect, border_radius=6)
+            pygame.draw.rect(self.screen, clr_border, clr_rect, width=1, border_radius=6)
+            clr_txt = self.font_small.render("✕", True, CHECK_HOVER if (hov_clr and is_custom) else (TEXT_SECONDARY if is_custom else TEXT_MUTED))
+            self.screen.blit(clr_txt, clr_txt.get_rect(center=clr_rect.center))
+
+        # 6. Status Feedback Bar
+        st_rect = rects["status"]
+        pygame.draw.rect(self.screen, (18, 20, 26), st_rect, border_radius=6)
+        pygame.draw.rect(self.screen, (42, 48, 62), st_rect, width=1, border_radius=6)
+
+        msg = getattr(state, "status_message", "")
+        is_err = getattr(state, "status_is_error", False)
+        if is_err:
+            msg_color = CHECK_COLOR
+        elif "success" in msg.lower() or "matched" in msg.lower() or "imported" in msg.lower():
+            msg_color = ACCENT_COLOR
+        else:
+            msg_color = TEXT_SECONDARY
+
+        st_lbl = self.font_micro.render(msg, True, msg_color)
+        self.screen.blit(st_lbl, (st_rect.x + 10, st_rect.centery - st_lbl.get_height() // 2))
+
+        cnt = getattr(state, "custom_count", 0)
+        cnt_lbl = self.font_micro.render(f"Customized: {cnt}/11 sounds", True, ACCENT_COLOR if cnt > 0 else TEXT_MUTED)
+        self.screen.blit(cnt_lbl, (st_rect.right - cnt_lbl.get_width() - 10, st_rect.centery - cnt_lbl.get_height() // 2))
+
+        # 7. Action Buttons (Cancel, Save & Apply)
+        self._draw_button("Cancel", rects["cancel"], mouse_pos)
+        self._draw_button("✔ Save & Apply Sounds", rects["save"], mouse_pos, accent=True)
+
+        return rects
+
 
     # -------------------------------------------------------------------------
     # UNO Card Visual Graphics & Animations
@@ -2561,9 +2831,10 @@ class ChessRenderer:
         self.screen.blit(stat2, (px + 14, 270))
 
         # 4. Theme Selection Section
-        theme_lbl = self.font_subtitle.render("PIECE & BOARD THEME", True, TEXT_MUTED)
+        theme_lbl = self.font_subtitle.render("THEMES & PACKS", True, TEXT_MUTED)
         self.screen.blit(theme_lbl, (px, 308))
-        self._draw_button("+ New Pack", self.buttons.create_pack, mouse_pos, accent=True)
+        self._draw_button("+ Pieces", self.buttons.create_pack, mouse_pos, accent=True)
+        self._draw_button("+ Sounds", self.buttons.create_sound_pack, mouse_pos, accent=True)
 
         pack_info = f"{active_pack_name} ({active_pack_index + 1}/{total_packs})"
         pack_text = self.font_small.render(pack_info, True, TEXT_PRIMARY)

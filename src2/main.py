@@ -47,6 +47,7 @@ from hero_mode_engine import HeroMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 from asset_pack_creator import AssetPackCreatorState, save_asset_pack, sanitize_pack_name
+from sound_pack_creator import SoundPackCreatorState, save_sound_pack
 
 # Window dimensions
 WINDOW_WIDTH = 1200
@@ -128,6 +129,8 @@ def main() -> None:
     mode_selector_open: bool = False
     asset_creator_state = AssetPackCreatorState()
     asset_creator_open: bool = False
+    sound_creator_state = SoundPackCreatorState()
+    sound_creator_open: bool = False
     selected_square: Optional[chess.Square] = None
     legal_destinations: List[chess.Square] = []
     dragging: bool = False
@@ -272,6 +275,8 @@ def main() -> None:
         renderer.update_rook_dash(dt)
         if asset_creator_open:
             asset_creator_state.update(dt)
+        if sound_creator_open:
+            sound_creator_state.update(dt)
 
         # Ensure virtual_screen and renderer layout dynamically match current screen dimensions
         disp_w, disp_h = screen.get_size()
@@ -286,7 +291,7 @@ def main() -> None:
         mouse_pos = pygame.mouse.get_pos()
 
         # Update match chess clock countdown
-        if not mode_selector_open and not asset_creator_open and not game_state.is_game_over():
+        if not mode_selector_open and not asset_creator_open and not sound_creator_open and not game_state.is_game_over():
             timeout_loser = timer.update(dt)
             if timeout_loser is not None:
                 game_state.set_timeout(timeout_loser)
@@ -300,6 +305,7 @@ def main() -> None:
         if (
             not mode_selector_open
             and not asset_creator_open
+            and not sound_creator_open
             and pending_promotion is None
             and not game_state.is_game_over()
             and not renderer.is_dash_animating()
@@ -442,6 +448,83 @@ def main() -> None:
                     else:
                         # Clicked outside modal -> dismiss
                         asset_creator_open = False
+                        timer.resume()
+                        continue
+
+                # 0c. Sound Pack Creator Modal Intercept
+                if sound_creator_open:
+                    s_rects = renderer.get_sound_pack_creator_rects()
+                    if s_rects["close"].collidepoint(event_pos) or s_rects["cancel"].collidepoint(event_pos):
+                        sound_creator_state.stop_preview()
+                        sound_creator_open = False
+                        timer.resume()
+                        continue
+
+                    if s_rects["name_input"].collidepoint(event_pos):
+                        sound_creator_state.name_focused = True
+                        continue
+                    else:
+                        sound_creator_state.name_focused = False
+
+                    if s_rects["import_folder"].collidepoint(event_pos):
+                        sound_creator_state.browse_folder_and_auto_match()
+                        continue
+
+                    if s_rects["reset_all"].collidepoint(event_pos):
+                        sound_creator_state.reset()
+                        continue
+
+                    clicked_play = False
+                    for sound_id, p_rect in s_rects["play"].items():
+                        if p_rect.collidepoint(event_pos):
+                            sound_creator_state.play_preview(sound_id)
+                            clicked_play = True
+                            break
+                    if clicked_play:
+                        continue
+
+                    clicked_browse = False
+                    for sound_id, b_rect in s_rects["browse"].items():
+                        if b_rect.collidepoint(event_pos):
+                            sound_creator_state.browse_for_sound(sound_id)
+                            clicked_browse = True
+                            break
+                    if clicked_browse:
+                        continue
+
+                    clicked_clr = False
+                    for sound_id, clr_r in s_rects["clear"].items():
+                        if clr_r.collidepoint(event_pos):
+                            sound_creator_state.clear_sound(sound_id)
+                            clicked_clr = True
+                            break
+                    if clicked_clr:
+                        continue
+
+                    if s_rects["save"].collidepoint(event_pos):
+                        active_th = Assets.get_active_asset_pack()
+                        ok, msg = save_sound_pack(
+                            sound_creator_state.pack_name,
+                            sound_creator_state.sound_paths,
+                            active_theme_name=active_th,
+                        )
+                        if ok:
+                            Assets.play_sound("game_start")
+                            sound_creator_state.stop_preview()
+                            sound_creator_open = False
+                            timer.resume()
+                        else:
+                            sound_creator_state.status_message = msg
+                            sound_creator_state.status_is_error = True
+                        continue
+
+                    # If clicked inside modal, consume event
+                    if s_rects["modal"].collidepoint(event_pos):
+                        continue
+                    else:
+                        # Clicked outside modal -> dismiss
+                        sound_creator_state.stop_preview()
+                        sound_creator_open = False
                         timer.resume()
                         continue
 
@@ -591,6 +674,12 @@ def main() -> None:
                 if renderer.buttons.create_pack.collidepoint(event_pos):
                     asset_creator_state.reset(default_piece_images=piece_images)
                     asset_creator_open = True
+                    timer.pause()
+                    continue
+
+                if renderer.buttons.create_sound_pack.collidepoint(event_pos):
+                    sound_creator_state.reset()
+                    sound_creator_open = True
                     timer.pause()
                     continue
 
@@ -788,6 +877,17 @@ def main() -> None:
                         continue
                     continue
 
+                if sound_creator_open:
+                    if event.key == pygame.K_ESCAPE and not sound_creator_state.name_focused:
+                        sound_creator_state.stop_preview()
+                        sound_creator_open = False
+                        timer.resume()
+                        continue
+                    consumed = sound_creator_state.handle_keydown(event)
+                    if consumed:
+                        continue
+                    continue
+
                 # Fullscreen Shortcuts (F11 or Alt+Enter)
                 if event.key == pygame.K_F11:
                     toggle_fullscreen()
@@ -808,6 +908,7 @@ def main() -> None:
                     drag_start_square = None
                     pending_promotion = None
                     if bot_controller.player_color == chess.BLACK:
+                        # advait
                         flipped = True
                     renderer.cancel_rook_dash()
                     Assets.play_sound("game_start")
@@ -835,9 +936,14 @@ def main() -> None:
                 elif event.key == pygame.K_m:
                     Assets.toggle_sound()
 
-                elif event.key == pygame.K_p and not mode_selector_open and not asset_creator_open:
+                elif event.key == pygame.K_p and not mode_selector_open and not asset_creator_open and not sound_creator_open:
                     asset_creator_state.reset(default_piece_images=piece_images)
                     asset_creator_open = True
+                    timer.pause()
+
+                elif event.key == pygame.K_s and not mode_selector_open and not asset_creator_open and not sound_creator_open:
+                    sound_creator_state.reset()
+                    sound_creator_open = True
                     timer.pause()
 
                 elif event.key == pygame.K_SPACE:
@@ -962,6 +1068,13 @@ def main() -> None:
                 mouse_pos=mouse_pos,
                 state=asset_creator_state,
                 default_piece_images=piece_images,
+            )
+
+        # 7c. Custom Sound Pack Creator Modal
+        if sound_creator_open:
+            renderer.draw_sound_pack_creator_modal(
+                mouse_pos=mouse_pos,
+                state=sound_creator_state,
             )
 
         # -------------------------------------------------------------

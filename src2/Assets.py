@@ -101,6 +101,8 @@ PIECE_IMAGES: Dict[str, pygame.Surface] = {}
 SOUNDS: Dict[str, Optional[pygame.mixer.Sound]] = {name: None for name in SOUND_FILES}
 SOUND_ENABLED: bool = True
 SOUND_VOLUME: float = 0.8
+SOUND_PACKS_DIR: Path = ASSET_PACKS_DIR / "sound_packs"
+ACTIVE_SOUND_PACK: str = "Default"
 
 
 # ============================================================
@@ -254,17 +256,34 @@ def load_sounds(pack_dir: Path) -> Dict[str, Optional[pygame.mixer.Sound]]:
         return sounds
 
     sounds_dir = pack_dir / "sounds"
+    active_sound_pack_dir = SOUND_PACKS_DIR / ACTIVE_SOUND_PACK if ACTIVE_SOUND_PACK != "Default" else None
 
     for name, filename in SOUND_FILES.items():
         sound_loaded = False
+        stem = Path(filename).stem
+
+        # 1. Search candidate directories (sound pack first, then visual theme sounds)
+        candidate_dirs = []
+        if active_sound_pack_dir and active_sound_pack_dir.is_dir():
+            candidate_dirs.append(active_sound_pack_dir)
         if sounds_dir.is_dir():
-            file_path = resolve_file_case_insensitive(sounds_dir, filename)
+            candidate_dirs.append(sounds_dir)
+
+        for sdir in candidate_dirs:
+            file_path = resolve_file_case_insensitive(sdir, filename)
+            if not file_path:
+                for ext in (".wav", ".mp3", ".ogg", ".flac", ".aac"):
+                    cand = resolve_file_case_insensitive(sdir, f"{stem}{ext}")
+                    if cand:
+                        file_path = cand
+                        break
             if file_path:
                 try:
                     sound = pygame.mixer.Sound(str(file_path))
                     sound.set_volume(SOUND_VOLUME)
                     sounds[name] = sound
                     sound_loaded = True
+                    break
                 except pygame.error as err:
                     print(f"Warning: Could not load sound '{file_path}': {err}")
 
@@ -542,3 +561,81 @@ def set_sound_volume(name: str, volume: float) -> bool:
 
     sound.set_volume(volume)
     return True
+
+
+# ============================================================
+# 7. SOUND PACK MANAGEMENT
+# ============================================================
+
+def get_available_sound_packs() -> List[str]:
+    """Return names of all available sound asset packs."""
+    packs = ["Default"]
+    if SOUND_PACKS_DIR.is_dir():
+        for folder in SOUND_PACKS_DIR.iterdir():
+            if folder.is_dir() and folder.name != "Default":
+                # Must contain at least one audio file
+                audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in [".wav", ".mp3", ".ogg", ".flac"]]
+                if audio_files:
+                    packs.append(folder.name)
+    return sorted(list(set(packs)))
+
+
+def get_active_sound_pack() -> str:
+    """Return the name of the currently active sound pack."""
+    return ACTIVE_SOUND_PACK
+
+
+def load_sound_pack(pack_name: str) -> Dict[str, Optional[pygame.mixer.Sound]]:
+    """
+    Load a sound pack into the global SOUNDS dictionary and activate it.
+    Supports packs stored in `src2/assets/sound_packs/<pack_name>` as well as
+    fallback procedural sounds.
+    """
+    global ACTIVE_SOUND_PACK, SOUNDS
+
+    if pygame.mixer.get_init() is None:
+        try:
+            pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=512)
+        except pygame.error as err:
+            print(f"Warning: Audio device unavailable: {err}")
+            return SOUNDS
+
+    new_sounds: Dict[str, Optional[pygame.mixer.Sound]] = {name: None for name in SOUND_FILES}
+    pack_dir = SOUND_PACKS_DIR / pack_name if pack_name != "Default" else None
+
+    for name, filename in SOUND_FILES.items():
+        loaded = False
+        stem = Path(filename).stem
+        if pack_dir and pack_dir.is_dir():
+            file_path = resolve_file_case_insensitive(pack_dir, filename)
+            if not file_path:
+                for ext in (".wav", ".mp3", ".ogg", ".flac", ".aac"):
+                    cand = resolve_file_case_insensitive(pack_dir, f"{stem}{ext}")
+                    if cand:
+                        file_path = cand
+                        break
+            if file_path:
+                try:
+                    sound = pygame.mixer.Sound(str(file_path))
+                    sound.set_volume(SOUND_VOLUME)
+                    new_sounds[name] = sound
+                    loaded = True
+                except pygame.error as err:
+                    print(f"Warning: Could not load sound '{file_path}': {err}")
+
+        # Fallback to procedural sound
+        if not loaded:
+            synthetic_sound = _generate_procedural_sound(name)
+            if synthetic_sound:
+                synthetic_sound.set_volume(SOUND_VOLUME * 0.6)
+                new_sounds[name] = synthetic_sound
+
+    ACTIVE_SOUND_PACK = pack_name
+    SOUNDS = new_sounds
+    print(f"Sound pack loaded: '{ACTIVE_SOUND_PACK}' ({len(SOUNDS)} sounds active)")
+    return SOUNDS
+
+
+def switch_sound_pack(pack_name: str) -> Dict[str, Optional[pygame.mixer.Sound]]:
+    """Switch active sound pack immediately."""
+    return load_sound_pack(pack_name)
