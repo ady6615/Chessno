@@ -390,6 +390,11 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
     """
     if board.is_checkmate():
         return -30000 if board.turn == chess.WHITE else 30000
+    if board.is_game_over():
+        outcome = board.outcome()
+        if outcome and outcome.winner is not None:
+            return 30000 if outcome.winner == chess.WHITE else -30000
+        return 0
     if board.is_stalemate() or board.is_insufficient_material():
         return 0
 
@@ -865,6 +870,12 @@ def alpha_beta_search(
     if board.is_game_over():
         if board.is_checkmate():
             return -30000 + ply  # Favor quicker checkmates
+        outcome = board.outcome()
+        if outcome and outcome.winner is not None:
+            if outcome.winner != board.turn:
+                return -30000 + ply
+            else:
+                return 30000 - ply
         return 0
 
     # 1. Transposition Table Probe
@@ -1065,7 +1076,7 @@ def select_best_move(
     if difficulty != BotDifficulty.NOVICE:
         for m in legal_moves:
             board.push(m)
-            if board.is_checkmate():
+            if board.is_checkmate() or (board.is_game_over() and board.outcome() and board.outcome().winner == (not board.turn)):
                 board.pop()
                 return m
             board.pop()
@@ -1230,8 +1241,10 @@ def select_best_move(
             filter_underpromotions=True,
         )
 
+        depth_completed = True
         for move in ordered_root:
             if (stop_event and stop_event.is_set()) or time.time() > deadline:
+                depth_completed = False
                 break
 
             board.push(move)
@@ -1265,10 +1278,12 @@ def select_best_move(
                     overall_best_move = move
                     return overall_best_move
 
-        if best_at_depth is not None:
+        if depth_completed and best_at_depth is not None:
             overall_best_move = best_at_depth
             # Save root move in TT
             TRANSPOSITION_TABLE[board._transposition_key()] = (current_depth, TT_EXACT, best_score_at_depth, best_at_depth)
+        elif not depth_completed:
+            break
 
     return overall_best_move
 

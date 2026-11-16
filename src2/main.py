@@ -44,6 +44,7 @@ from queen_pawn_engine import QueenPawnMode
 from rook_dash_engine import RookDashMode
 from bishop_dash_engine import BishopDashMode
 from hero_mode_engine import HeroMode
+from atomic_engine import AtomicChessMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 from asset_pack_creator import AssetPackCreatorState, save_asset_pack, sanitize_pack_name
@@ -198,6 +199,11 @@ def main() -> None:
             hm_mode = HeroMode()
             game_state = GameState(mode=hm_mode)
             flipped = (bot_controller.player_color == chess.BLACK)
+        elif mode_name in ("Atomic Chess", "atomic chess", "Atomic"):
+            current_mode_name = "Atomic Chess"
+            atomic_mode = AtomicChessMode()
+            game_state = GameState(mode=atomic_mode)
+            flipped = (bot_controller.player_color == chess.BLACK)
         else:
             current_mode_name = "Classic"
             classic_mode = ClassicChessMode()
@@ -213,6 +219,7 @@ def main() -> None:
         mode_selector_open = False
         timer.reset()
         renderer.cancel_rook_dash()
+        renderer.cancel_atomic_explosion()
         Assets.play_sound("game_start")
         renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
 
@@ -254,6 +261,19 @@ def main() -> None:
             )
             Assets.play_sound("dash")
 
+    def check_and_trigger_atomic_explosion(result: MoveResult) -> None:
+        if not result.success or not result.is_capture:
+            return
+        mode_name = getattr(game_state.mode, "name", "")
+        if mode_name == "Atomic Chess":
+            expl = getattr(game_state.mode, "last_explosion", None)
+            if expl:
+                renderer.trigger_atomic_explosion(
+                    center_sq=expl["center_square"],
+                    affected_squares=expl["affected_squares"],
+                    flipped=flipped,
+                )
+
     def change_theme(direction: int) -> None:
         nonlocal active_pack_index, board_image, piece_images
         new_index = (active_pack_index + direction) % len(available_packs)
@@ -273,6 +293,7 @@ def main() -> None:
         renderer.update_reset_return(dt)
         renderer.update_start_bounce(dt)
         renderer.update_rook_dash(dt)
+        renderer.update_atomic_explosion(dt)
         if asset_creator_open:
             asset_creator_state.update(dt)
         if sound_creator_open:
@@ -309,6 +330,7 @@ def main() -> None:
             and pending_promotion is None
             and not game_state.is_game_over()
             and not renderer.is_dash_animating()
+            and not renderer.is_explosion_animating()
             and bot_controller.is_bot_turn(game_state)
         ):
             bot_move, trigger_draw = bot_controller.update(dt, game_state)
@@ -322,6 +344,7 @@ def main() -> None:
                 result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=promo)
                 if result.success:
                     check_and_trigger_rook_dash(moving_piece, bot_move.from_square, bot_move.to_square, result)
+                    check_and_trigger_atomic_explosion(result)
                     play_move_sound(result, game_state)
                     timer.switch_turn(game_state.turn)
                     if not timer.started and timer.has_timer and not game_state.is_game_over():
@@ -338,6 +361,7 @@ def main() -> None:
                         res2 = game_state.make_move(fb_m.from_square, fb_m.to_square, promotion=fb_promo)
                         if res2.success:
                             check_and_trigger_rook_dash(fb_piece, fb_m.from_square, fb_m.to_square, res2)
+                            check_and_trigger_atomic_explosion(res2)
                             play_move_sound(res2, game_state)
                             timer.switch_turn(game_state.turn)
 
@@ -530,7 +554,7 @@ def main() -> None:
 
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect, hm_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect, hm_rect, at_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
 
@@ -548,6 +572,8 @@ def main() -> None:
                         switch_to_mode("Bishop Dash")
                     elif hm_rect.collidepoint(event_pos):
                         switch_to_mode("Hero Mode")
+                    elif at_rect.collidepoint(event_pos):
+                        switch_to_mode("Atomic Chess")
                     elif vs_bot_r.collidepoint(event_pos):
                         bot_controller.enabled = True
                         Assets.play_sound("move")
@@ -610,6 +636,7 @@ def main() -> None:
                         if btn_rect.collidepoint(event_pos):
                             result = game_state.make_move(from_sq, to_sq, promotion=ptype)
                             if result.success:
+                                check_and_trigger_atomic_explosion(result)
                                 play_move_sound(result, game_state)
                                 timer.switch_turn(game_state.turn)
                             pending_promotion = None
@@ -641,6 +668,7 @@ def main() -> None:
                         if bot_controller.player_color == chess.BLACK:
                             flipped = True
                         renderer.cancel_rook_dash()
+                        renderer.cancel_atomic_explosion()
                         Assets.play_sound("game_start")
                         renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
                         continue
@@ -704,6 +732,7 @@ def main() -> None:
                     if bot_controller.player_color == chess.BLACK:
                         flipped = True
                     renderer.cancel_rook_dash()
+                    renderer.cancel_atomic_explosion()
                     Assets.play_sound("game_start")
                     renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
                     continue
@@ -754,7 +783,7 @@ def main() -> None:
                 )
 
                 if clicked_sq is not None:
-                    if renderer.is_dash_animating():
+                    if renderer.is_dash_animating() or renderer.is_explosion_animating():
                         continue
                     if renderer.is_return_animating():
                         renderer.cancel_reset_return()
@@ -770,6 +799,7 @@ def main() -> None:
                                 if auto_p is not None:
                                     result = game_state.make_move(selected_square, clicked_sq, promotion=auto_p)
                                     if result.success:
+                                        check_and_trigger_atomic_explosion(result)
                                         play_move_sound(result, game_state)
                                         timer.switch_turn(game_state.turn)
                                     selected_square = None
@@ -781,6 +811,7 @@ def main() -> None:
                                 result = game_state.make_move(selected_square, clicked_sq)
                                 if result.success:
                                     check_and_trigger_rook_dash(moving_p, selected_square, clicked_sq, result)
+                                    check_and_trigger_atomic_explosion(result)
                                     play_move_sound(result, game_state)
                                     timer.switch_turn(game_state.turn)
                                 selected_square = None
@@ -838,6 +869,7 @@ def main() -> None:
                                 if auto_p is not None:
                                     result = game_state.make_move(drag_start_square, target_sq, promotion=auto_p)
                                     if result.success:
+                                        check_and_trigger_atomic_explosion(result)
                                         play_move_sound(result, game_state)
                                         timer.switch_turn(game_state.turn)
                                     selected_square = None
@@ -849,6 +881,7 @@ def main() -> None:
                                 result = game_state.make_move(drag_start_square, target_sq)
                                 if result.success:
                                     check_and_trigger_rook_dash(moving_p, drag_start_square, target_sq, result)
+                                    check_and_trigger_atomic_explosion(result)
                                     play_move_sound(result, game_state)
                                     timer.switch_turn(game_state.turn)
                                 selected_square = None
@@ -911,6 +944,7 @@ def main() -> None:
                         # advait
                         flipped = True
                     renderer.cancel_rook_dash()
+                    renderer.cancel_atomic_explosion()
                     Assets.play_sound("game_start")
                     renderer.trigger_reset_return(end_pieces, game_state, piece_images, flipped=flipped)
 
@@ -976,6 +1010,9 @@ def main() -> None:
                 elif event.key == pygame.K_7 and mode_selector_open:
                     switch_to_mode("Hero Mode")
 
+                elif event.key == pygame.K_8 and mode_selector_open:
+                    switch_to_mode("Atomic Chess")
+
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
                         mode_selector_open = False
@@ -1016,6 +1053,9 @@ def main() -> None:
 
         # 3b. Immortal Snail Entity Overlay
         renderer.draw_snail(game_state, flipped=flipped)
+
+        # 3c. Atomic Chess Explosion Blast VFX Overlay
+        renderer.draw_atomic_explosion()
 
         # 4. Floating dragged piece following mouse cursor
         if dragging and selected_square is not None:

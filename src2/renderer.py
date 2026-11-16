@@ -417,6 +417,84 @@ class RookDashAnimation:
         return min(1.0, (self.elapsed - self.dash_duration) / self.impact_duration)
 
 
+class AtomicExplosionAnimation:
+    """
+    Manages explosive blast VFX for Atomic Chess.
+    Features:
+    - Expanding fiery blast shockwave rings
+    - Epicentral blast flash centered at the capture square
+    - High-velocity ember and spark particles flying outward
+    - Residual ground heat glow over all destroyed squares
+    - Screen micro-shake for visceral impact feedback
+    """
+    def __init__(self, duration: float = 0.38):
+        self.duration = duration
+        self.elapsed: float = 0.0
+        self.active: bool = False
+        self.center_sq: Optional[chess.Square] = None
+        self.affected_squares: List[chess.Square] = []
+        self.flipped: bool = False
+        self.particles: List[Dict[str, Any]] = []
+
+    def trigger(
+        self,
+        center_sq: chess.Square,
+        affected_squares: List[chess.Square],
+        flipped: bool = False,
+    ) -> None:
+        """Trigger an atomic explosion at center_sq affecting adjacent squares."""
+        self.center_sq = center_sq
+        self.affected_squares = list(affected_squares)
+        self.flipped = flipped
+        self.elapsed = 0.0
+        self.active = True
+
+        import random
+        self.particles = []
+        for _ in range(28):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(70, 260)
+            self.particles.append({
+                "x": 0.0,
+                "y": 0.0,
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed,
+                "size": random.uniform(3.0, 7.5),
+            })
+
+    def update(self, dt: float) -> bool:
+        """Advance explosion time by dt. Returns True when finished."""
+        if not self.active:
+            return False
+        self.elapsed += max(0.0, dt)
+        if self.elapsed >= self.duration:
+            self.active = False
+            return True
+
+        for p in self.particles:
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            p["vx"] *= 0.93
+            p["vy"] *= 0.93
+
+        return False
+
+    def cancel(self) -> None:
+        self.active = False
+        self.elapsed = 0.0
+        self.particles.clear()
+
+    @property
+    def is_active(self) -> bool:
+        return self.active
+
+    @property
+    def progress(self) -> float:
+        if not self.active or self.duration <= 0:
+            return 1.0
+        return min(1.0, self.elapsed / self.duration)
+
+
 
 class ChessRenderer:
     """Encapsulates all Pygame drawing logic for the chess interface."""
@@ -485,6 +563,8 @@ class ChessRenderer:
         self.return_anim = PieceResetReturnAnimation()
         # Rook Dash high-speed sprint & impact animation manager
         self.rook_dash_anim = RookDashAnimation()
+        # Atomic Chess capture explosion VFX manager
+        self.atomic_explosion_anim = AtomicExplosionAnimation()
 
     def update_layout(self, width: int, height: int, is_fullscreen: bool = False) -> None:
         """
@@ -704,6 +784,116 @@ class ChessRenderer:
     def is_dash_animating(self) -> bool:
         """Return True if a Rook is actively in mid-dash."""
         return self.rook_dash_anim.is_active
+
+    def trigger_atomic_explosion(
+        self,
+        center_sq: chess.Square,
+        affected_squares: List[chess.Square],
+        flipped: bool = False,
+    ) -> None:
+        """Trigger an atomic blast shockwave animation at center_sq."""
+        self.atomic_explosion_anim.trigger(
+            center_sq=center_sq,
+            affected_squares=affected_squares,
+            flipped=flipped,
+        )
+
+    def update_atomic_explosion(self, dt: float) -> bool:
+        """Update active atomic explosion VFX. Returns True when finished."""
+        return self.atomic_explosion_anim.update(dt)
+
+    def cancel_atomic_explosion(self) -> None:
+        """Immediately cancel active atomic explosion VFX."""
+        self.atomic_explosion_anim.cancel()
+
+    def is_explosion_animating(self) -> bool:
+        """True if an atomic blast explosion is actively rendering."""
+        return self.atomic_explosion_anim.is_active
+
+    def draw_atomic_explosion(self) -> None:
+        """
+        Render the fiery blast shockwave, ground blast glow, core flash, and flying sparks
+        for an Atomic Chess capture.
+        """
+        anim = self.atomic_explosion_anim
+        if not anim.is_active or anim.center_sq is None:
+            return
+
+        progress = anim.progress
+        center_rect = square_to_rect(
+            anim.center_sq,
+            flipped=anim.flipped,
+            board_x=self.board_x,
+            board_y=self.board_y,
+            square_size=self.square_size,
+        )
+        cx, cy = center_rect.centerx, center_rect.centery
+
+        # Screen micro-shake during early explosive impact
+        offset_x, offset_y = 0, 0
+        if progress < 0.35:
+            shake_mag = int((1.0 - progress / 0.35) * 5.0)
+            offset_x = int(math.sin(anim.elapsed * 65) * shake_mag)
+            offset_y = int(math.cos(anim.elapsed * 55) * shake_mag)
+
+        # 1. Ground Blast Heat Glow over all affected squares
+        glow_alpha = int(max(0, 190 * (1.0 - progress)))
+        for sq in anim.affected_squares:
+            sq_rect = square_to_rect(
+                sq,
+                flipped=anim.flipped,
+                board_x=self.board_x + offset_x,
+                board_y=self.board_y + offset_y,
+                square_size=self.square_size,
+            )
+            glow_surf = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+            glow_surf.fill((255, 80, 20, glow_alpha))
+            pygame.draw.rect(
+                glow_surf,
+                (255, 210, 60, int(glow_alpha * 0.95)),
+                (0, 0, self.square_size, self.square_size),
+                width=3,
+                border_radius=4,
+            )
+            self.screen.blit(glow_surf, sq_rect.topleft)
+
+        # 2. Expanding Shockwave Rings
+        max_blast_r = self.square_size * 2.2
+        r_outer = int(progress * max_blast_r)
+        if r_outer > 3:
+            ring_alpha = int(max(0, 240 * (1.0 - progress)))
+            ring_surf = pygame.Surface((r_outer * 2 + 10, r_outer * 2 + 10), pygame.SRCALPHA)
+            rcx, rcy = r_outer + 5, r_outer + 5
+            # Outer fiery orange ring
+            pygame.draw.circle(ring_surf, (255, 140, 30, ring_alpha), (rcx, rcy), r_outer, width=max(2, int(6 * (1.0 - progress))))
+            # Inner bright yellow shockwave ring
+            r_inner = max(2, int(r_outer * 0.72))
+            pygame.draw.circle(ring_surf, (255, 230, 110, int(ring_alpha * 0.85)), (rcx, rcy), r_inner, width=max(1, int(4 * (1.0 - progress))))
+            self.screen.blit(ring_surf, (cx + offset_x - rcx, cy + offset_y - rcy))
+
+        # 3. Epicentral Core Flash (White/Gold blinding burst)
+        if progress < 0.38:
+            flash_p = progress / 0.38
+            flash_alpha = int(240 * (1.0 - flash_p))
+            flash_rad = max(4, int(self.square_size * 0.75 * (1.0 - flash_p * 0.5)))
+            flash_surf = pygame.Surface((flash_rad * 2 + 6, flash_rad * 2 + 6), pygame.SRCALPHA)
+            fcx, fcy = flash_rad + 3, flash_rad + 3
+            pygame.draw.circle(flash_surf, (255, 255, 220, flash_alpha), (fcx, fcy), flash_rad)
+            pygame.draw.circle(flash_surf, (255, 200, 60, int(flash_alpha * 0.7)), (fcx, fcy), int(flash_rad * 1.3), width=3)
+            self.screen.blit(flash_surf, (cx + offset_x - fcx, cy + offset_y - fcy))
+
+        # 4. Flying Ember & Spark Particles
+        for p in anim.particles:
+            px = cx + offset_x + int(p["x"])
+            py = cy + offset_y + int(p["y"])
+            sz = max(1, int(p["size"] * (1.0 - progress * 0.7)))
+            if progress < 0.35:
+                color = (255, 245, 160)
+            elif progress < 0.70:
+                color = (255, 130, 30)
+            else:
+                color = (210, 40, 20)
+            pygame.draw.circle(self.screen, color, (px, py), sz)
 
     # -------------------------------------------------------------------------
     # Board & Square Highlights
@@ -1469,13 +1659,13 @@ class ChessRenderer:
     # Game Mode Selection Start Menu / Modal
     # -------------------------------------------------------------------------
 
-    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
-        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash, Hero_Mode)."""
+    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash, Hero_Mode, Atomic_Chess)."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
-        card_w, card_h = 138, 185
+        card_w, card_h = 126, 185
         gap = 8
-        total_w = card_w * 7 + gap * 6
+        total_w = card_w * 8 + gap * 7
         start_x = (screen_w - total_w) // 2
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
         card_y = 96 + offset_y
@@ -1487,7 +1677,8 @@ class ChessRenderer:
         rect_rook_dash = pygame.Rect(start_x + (card_w + gap) * 4, card_y, card_w, card_h)
         rect_bishop_dash = pygame.Rect(start_x + (card_w + gap) * 5, card_y, card_w, card_h)
         rect_hero_mode = pygame.Rect(start_x + (card_w + gap) * 6, card_y, card_w, card_h)
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode
+        rect_atomic = pygame.Rect(start_x + (card_w + gap) * 7, card_y, card_w, card_h)
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic
 
     def get_mode_selector_ai_rects(
         self,
@@ -1583,11 +1774,11 @@ class ChessRenderer:
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Select game mode [1-7], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
+        sub_surf = self.font_normal.render("Select game mode [1-8], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
         s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 26))
         self.screen.blit(sub_surf, s_rect)
 
-        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode = self.get_mode_selector_rects()
+        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic = self.get_mode_selector_rects()
 
         # 1. Classic Chess Card
         is_hov_c = rect_classic.collidepoint(mouse_pos)
@@ -1785,6 +1976,34 @@ class ChessRenderer:
         btn_hm_lbl = self.font_subtitle.render("PLAY [7]", True, (35, 30, 10))
         self.screen.blit(btn_hm_lbl, btn_hm_lbl.get_rect(center=btn_hm_rect.center))
 
+        # 8. Atomic Chess Card
+        is_hov_at = rect_atomic.collidepoint(mouse_pos)
+        at_bg = (52, 57, 70) if is_hov_at else (40, 44, 54)
+        at_border = (255, 90, 40) if is_hov_at else PANEL_BORDER
+        pygame.draw.rect(self.screen, at_bg, rect_atomic, border_radius=10)
+        pygame.draw.rect(self.screen, at_border, rect_atomic, width=2 if is_hov_at else 1, border_radius=10)
+
+        at_title = self.font_header.render("8. Atomic", True, (255, 100, 40))
+        self.screen.blit(at_title, (rect_atomic.x + 10, rect_atomic.y + 12))
+        at_badge = self.font_micro.render("EXPLOSION BLASTS", True, (255, 145, 75))
+        self.screen.blit(at_badge, (rect_atomic.x + 10, rect_atomic.y + 32))
+
+        at_lines = [
+            "• Captures explode",
+            "• Surrounding blast",
+            "• Pawns survive blast",
+            "• Blow up King to win",
+        ]
+        for idx, line in enumerate(at_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_atomic.x + 10, rect_atomic.y + 52 + idx * 19))
+
+        btn_at_rect = pygame.Rect(rect_atomic.x + 10, rect_atomic.bottom - 36, rect_atomic.width - 20, 26)
+        btn_at_color = (255, 120, 50) if is_hov_at else (235, 85, 30)
+        pygame.draw.rect(self.screen, btn_at_color, btn_at_rect, border_radius=5)
+        btn_at_lbl = self.font_subtitle.render("PLAY [8]", True, (35, 15, 10))
+        self.screen.blit(btn_at_lbl, btn_at_lbl.get_rect(center=btn_at_rect.center))
+
         # ---------------------------------------------------------------------
         # Opponent & Bot Difficulty Section
         # ---------------------------------------------------------------------
@@ -1950,10 +2169,10 @@ class ChessRenderer:
         start_lbl = self.font_header.render("START MATCH / PLAY NOW", True, (15, 35, 25))
         self.screen.blit(start_lbl, start_lbl.get_rect(center=start_game_r.center))
 
-        tip_txt = self.font_micro.render("Press [1-7] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
+        tip_txt = self.font_micro.render("Press [1-8] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
         self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 656 + offset_y)))
 
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic
 
     # -------------------------------------------------------------------------
     # Custom Asset Pack Creator Modal

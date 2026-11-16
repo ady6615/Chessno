@@ -475,6 +475,8 @@ class GameState:
         self.last_move = None
         self.timeout_winner = None
         self.timeout_reason = None
+        self._pre_move_validators.clear()
+        self._post_move_hooks.clear()
         self.mode.on_init(self)
 
     # -------------------------------------------------------------------------
