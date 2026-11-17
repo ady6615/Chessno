@@ -670,8 +670,10 @@ def score_move_mvv_lva(
 
     score = 0
     if move.promotion:
-        if move.promotion in (chess.QUEEN, chess.ROOK, chess.BISHOP):
-            score += 20000
+        if move.promotion == chess.QUEEN:
+            score += 25000
+        elif move.promotion in (chess.ROOK, chess.BISHOP):
+            score += 18000
         elif move.promotion == chess.KNIGHT and board.gives_check(move):
             score += 9500
         else:
@@ -1162,7 +1164,10 @@ def select_best_move(
             )
             board.pop()
 
-            promo_bonus = 30 if move.promotion in (chess.QUEEN, chess.ROOK, chess.BISHOP) else 0
+            if (stop_event and stop_event.is_set()) or time.time() > deadline:
+                break
+
+            promo_bonus = 60 if move.promotion == chess.QUEEN else (25 if move.promotion in (chess.ROOK, chess.BISHOP) else 0)
             noisy_score = score + promo_bonus + random.randint(-15, 15)
             if noisy_score > best_score:
                 best_score = noisy_score
@@ -1213,7 +1218,10 @@ def select_best_move(
             )
             board.pop()
 
-            promo_bonus = 25 if move.promotion in (chess.QUEEN, chess.ROOK, chess.BISHOP) else 0
+            if (stop_event and stop_event.is_set()) or time.time() > deadline:
+                break
+
+            promo_bonus = 60 if move.promotion == chess.QUEEN else (25 if move.promotion in (chess.ROOK, chess.BISHOP) else 0)
             adj_score = score + promo_bonus
             if adj_score > best_score:
                 best_score = adj_score
@@ -1283,7 +1291,10 @@ def select_best_move(
             )
             board.pop()
 
-            promo_bonus = 30 if move.promotion in (chess.QUEEN, chess.ROOK, chess.BISHOP) else 0
+            if (stop_event and stop_event.is_set()) or time.time() > deadline:
+                break
+
+            promo_bonus = 60 if move.promotion == chess.QUEEN else (25 if move.promotion in (chess.ROOK, chess.BISHOP) else 0)
             adj_score = score + promo_bonus
 
             if adj_score > best_score_at_depth:

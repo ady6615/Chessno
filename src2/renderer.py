@@ -32,6 +32,7 @@ from timer import ChessTimer
 from ai_bot import BotDifficulty, BOT_DIFFICULTY_METADATA, ChessBotController
 from asset_pack_creator import PIECE_SPECS
 from sound_pack_creator import SOUND_SPECS, SPEC_BY_ID
+from crazyhouse_engine import CrazyhouseMode, CRAZYHOUSE_PIECE_ORDER, PIECE_NAMES
 import Assets
 
 # Theme and UI Color Palette (Modern Slate & Obsidian Dark Theme)
@@ -1659,13 +1660,13 @@ class ChessRenderer:
     # Game Mode Selection Start Menu / Modal
     # -------------------------------------------------------------------------
 
-    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
-        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash, Hero_Mode, Atomic_Chess)."""
+    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash, Hero_Mode, Atomic_Chess, Crazyhouse)."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
-        card_w, card_h = 126, 185
-        gap = 8
-        total_w = card_w * 8 + gap * 7
+        card_w, card_h = 114, 185
+        gap = 6
+        total_w = card_w * 9 + gap * 8
         start_x = (screen_w - total_w) // 2
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
         card_y = 96 + offset_y
@@ -1678,7 +1679,22 @@ class ChessRenderer:
         rect_bishop_dash = pygame.Rect(start_x + (card_w + gap) * 5, card_y, card_w, card_h)
         rect_hero_mode = pygame.Rect(start_x + (card_w + gap) * 6, card_y, card_w, card_h)
         rect_atomic = pygame.Rect(start_x + (card_w + gap) * 7, card_y, card_w, card_h)
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic
+        rect_crazyhouse = pygame.Rect(start_x + (card_w + gap) * 8, card_y, card_w, card_h)
+        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic, rect_crazyhouse
+
+    def get_crazyhouse_reserve_rects(self, game_state: GameState) -> Dict[int, pygame.Rect]:
+        """Return clickable rectangles for each piece type in the active player's reserve pocket."""
+        px = self.panel_x
+        start_x = px + 18
+        slot_w = 40
+        slot_h = 44
+        gap = 6
+        y = 604
+        rects = {}
+        for i, pt in enumerate(CRAZYHOUSE_PIECE_ORDER):
+            r = pygame.Rect(start_x + i * (slot_w + gap), y, slot_w, slot_h)
+            rects[pt] = r
+        return rects
 
     def get_mode_selector_ai_rects(
         self,
@@ -1774,11 +1790,11 @@ class ChessRenderer:
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Select game mode [1-8], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
+        sub_surf = self.font_normal.render("Select game mode [1-9], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
         s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 26))
         self.screen.blit(sub_surf, s_rect)
 
-        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic = self.get_mode_selector_rects()
+        rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic, rect_crazyhouse = self.get_mode_selector_rects()
 
         # 1. Classic Chess Card
         is_hov_c = rect_classic.collidepoint(mouse_pos)
@@ -2003,6 +2019,34 @@ class ChessRenderer:
         pygame.draw.rect(self.screen, btn_at_color, btn_at_rect, border_radius=5)
         btn_at_lbl = self.font_subtitle.render("PLAY [8]", True, (35, 15, 10))
         self.screen.blit(btn_at_lbl, btn_at_lbl.get_rect(center=btn_at_rect.center))
+
+        # 9. Crazyhouse Card
+        is_hov_ch = rect_crazyhouse.collidepoint(mouse_pos)
+        ch_bg = (52, 57, 70) if is_hov_ch else (40, 44, 54)
+        ch_border = (80, 190, 255) if is_hov_ch else PANEL_BORDER
+        pygame.draw.rect(self.screen, ch_bg, rect_crazyhouse, border_radius=10)
+        pygame.draw.rect(self.screen, ch_border, rect_crazyhouse, width=2 if is_hov_ch else 1, border_radius=10)
+
+        ch_title = self.font_header.render("9. Crazyhouse", True, (90, 200, 255))
+        self.screen.blit(ch_title, (rect_crazyhouse.x + 8, rect_crazyhouse.y + 12))
+        ch_badge = self.font_micro.render("CAPTURE & DROP", True, (130, 220, 255))
+        self.screen.blit(ch_badge, (rect_crazyhouse.x + 8, rect_crazyhouse.y + 32))
+
+        ch_lines = [
+            "• Standard setup",
+            "• Captures to hand",
+            "• Drop to vacant",
+            "• Checkmate to win",
+        ]
+        for idx, line in enumerate(ch_lines):
+            t = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(t, (rect_crazyhouse.x + 8, rect_crazyhouse.y + 52 + idx * 19))
+
+        btn_ch_rect = pygame.Rect(rect_crazyhouse.x + 8, rect_crazyhouse.bottom - 36, rect_crazyhouse.width - 16, 26)
+        btn_ch_color = (100, 210, 255) if is_hov_ch else (60, 180, 240)
+        pygame.draw.rect(self.screen, btn_ch_color, btn_ch_rect, border_radius=5)
+        btn_ch_lbl = self.font_subtitle.render("PLAY [9]", True, (10, 30, 45))
+        self.screen.blit(btn_ch_lbl, btn_ch_lbl.get_rect(center=btn_ch_rect.center))
 
         # ---------------------------------------------------------------------
         # Opponent & Bot Difficulty Section
@@ -2867,6 +2911,8 @@ class ChessRenderer:
         is_rook_dash_mode = (game_state.mode.name == "Rook Dash")
         is_bishop_dash_mode = (game_state.mode.name == "Bishop Dash")
         is_hero_mode = (game_state.mode.name == "Hero Mode")
+        is_atomic_mode = (game_state.mode.name == "Atomic Chess")
+        is_crazyhouse_mode = (game_state.mode.name == "Crazyhouse")
         if is_snail_mode:
             mode_str = "MODE: IMMORTAL SNAIL"
             mode_color = (140, 230, 90)
@@ -2885,6 +2931,12 @@ class ChessRenderer:
         elif is_hero_mode:
             mode_str = "MODE: HERO MODE"
             mode_color = (255, 205, 45)
+        elif is_atomic_mode:
+            mode_str = "MODE: ATOMIC CHESS"
+            mode_color = (255, 100, 40)
+        elif is_crazyhouse_mode:
+            mode_str = "MODE: CRAZYHOUSE"
+            mode_color = (80, 190, 255)
         else:
             mode_str = "MODE: CLASSIC"
             mode_color = ACCENT_COLOR
@@ -3414,6 +3466,88 @@ class ChessRenderer:
             black_caps = game_state.captured_pieces.get("b", [])
             cap_stat = f"Captures: W +{len(white_caps)} | B +{len(black_caps)}"
             self.screen.blit(self.font_micro.render(cap_stat, True, (255, 215, 60)), (caps_box.x + 10, caps_box.y + 68))
+
+        elif is_crazyhouse_mode:
+            # Crazyhouse Arena HUD
+            mod_title = self.font_subtitle.render("CRAZYHOUSE ARENA", True, (80, 190, 255))
+            self.screen.blit(mod_title, (px + 14, 466))
+
+            badge_lbl = self.font_micro.render("RESERVE POCKET & PIECE DROPS", True, (130, 220, 255))
+            self.screen.blit(badge_lbl, (px + 14, 484))
+
+            # Rules Card
+            rules_box = pygame.Rect(px + 10, 500, pw - 20, 76)
+            pygame.draw.rect(self.screen, (28, 32, 40), rules_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, rules_box, width=1, border_radius=6)
+
+            rules = [
+                "• Captured pieces enter reserve pocket",
+                "• Dropped pieces adopt your color",
+                "• Pawns cannot drop on ranks 1 or 8",
+                "• Traditional checkmate to win",
+            ]
+            for idx, rule in enumerate(rules):
+                r_txt = self.font_micro.render(rule, True, TEXT_SECONDARY)
+                self.screen.blit(r_txt, (rules_box.x + 10, rules_box.y + 6 + idx * 17))
+
+            # Interactive Reserve Pocket Card
+            caps_box = pygame.Rect(px + 10, 582, pw - 20, 114)
+            pygame.draw.rect(self.screen, (28, 32, 40), caps_box, border_radius=6)
+            pygame.draw.rect(self.screen, PANEL_BORDER, caps_box, width=1, border_radius=6)
+
+            cur_turn_name = game_state.turn_name
+            active_title = f"{cur_turn_name.upper()} RESERVE (CLICK TO DROP)"
+            self.screen.blit(self.font_micro.render(active_title, True, (80, 190, 255)), (caps_box.x + 10, caps_box.y + 6))
+
+            # Draw the 5 reserve slots for active player
+            sel_drop = getattr(game_state.mode, "selected_drop_piece", None)
+            reserve_rects = self.get_crazyhouse_reserve_rects(game_state)
+            color_prefix = "w" if game_state.turn == chess.WHITE else "b"
+
+            for pt in CRAZYHOUSE_PIECE_ORDER:
+                s_rect = reserve_rects[pt]
+                count = game_state.board.pockets[game_state.turn].count(pt) if hasattr(game_state.board, "pockets") else 0
+                is_selected = (sel_drop == pt)
+                is_hovered = s_rect.collidepoint(mouse_pos) and count > 0
+
+                slot_bg = (55, 65, 80) if is_selected else ((42, 48, 60) if is_hovered else (32, 36, 46))
+                slot_border = (255, 215, 60) if is_selected else ((120, 210, 255) if is_hovered else ((60, 68, 85) if count > 0 else (45, 50, 60)))
+                pygame.draw.rect(self.screen, slot_bg, s_rect, border_radius=5)
+                pygame.draw.rect(self.screen, slot_border, s_rect, width=2 if is_selected else 1, border_radius=5)
+
+                code = f"{color_prefix}{chess.piece_symbol(pt).upper()}"
+                if piece_images and code in piece_images:
+                    icon = pygame.transform.smoothscale(piece_images[code], (22, 22))
+                    if count == 0:
+                        icon.set_alpha(80)
+                    self.screen.blit(icon, icon.get_rect(center=(s_rect.centerx, s_rect.y + 16)))
+
+                cnt_col = (255, 215, 60) if is_selected else (TEXT_PRIMARY if count > 0 else TEXT_MUTED)
+                cnt_txt = self.font_micro.render(f"x{count}", True, cnt_col)
+                self.screen.blit(cnt_txt, cnt_txt.get_rect(center=(s_rect.centerx, s_rect.bottom - 10)))
+
+            # Opponent reserve compact summary
+            opp_color = chess.BLACK if game_state.turn == chess.WHITE else chess.WHITE
+            opp_name = "Black" if game_state.turn == chess.WHITE else "White"
+            if hasattr(game_state.board, "pockets"):
+                opp_pocket = game_state.board.pockets[opp_color]
+                opp_parts = [f"{chess.piece_symbol(pt).upper()}:{opp_pocket.count(pt)}" for pt in CRAZYHOUSE_PIECE_ORDER if opp_pocket.count(pt) > 0]
+                opp_summary = " ".join(opp_parts) if opp_parts else "Empty"
+            else:
+                opp_summary = "Empty"
+
+            opp_str = f"{opp_name}'s Reserve: {opp_summary}"
+            self.screen.blit(self.font_micro.render(opp_str, True, TEXT_MUTED), (caps_box.x + 10, caps_box.y + 72))
+
+            # Helper status hint
+            if sel_drop is not None:
+                p_name = PIECE_NAMES.get(sel_drop, "Piece")
+                hint_str = f"Dropping {p_name}: Click any legal square!"
+                h_col = (255, 215, 60)
+            else:
+                hint_str = "Click reserve piece, then vacant square"
+                h_col = TEXT_SECONDARY
+            self.screen.blit(self.font_micro.render(hint_str, True, h_col), (caps_box.x + 10, caps_box.y + 92))
 
         else:
             # Classic Mode Overview (Standard FIDE Chess)

@@ -45,6 +45,7 @@ from rook_dash_engine import RookDashMode
 from bishop_dash_engine import BishopDashMode
 from hero_mode_engine import HeroMode
 from atomic_engine import AtomicChessMode
+from crazyhouse_engine import CrazyhouseMode
 from timer import ChessTimer
 from renderer import ChessRenderer, BG_COLOR
 from asset_pack_creator import AssetPackCreatorState, save_asset_pack, sanitize_pack_name
@@ -203,6 +204,11 @@ def main() -> None:
             current_mode_name = "Atomic Chess"
             atomic_mode = AtomicChessMode()
             game_state = GameState(mode=atomic_mode)
+            flipped = (bot_controller.player_color == chess.BLACK)
+        elif mode_name in ("Crazyhouse", "crazyhouse", "Crazy House", "crazy house"):
+            current_mode_name = "Crazyhouse"
+            crazyhouse_mode = CrazyhouseMode()
+            game_state = GameState(mode=crazyhouse_mode)
             flipped = (bot_controller.player_color == chess.BLACK)
         else:
             current_mode_name = "Classic"
@@ -554,7 +560,7 @@ def main() -> None:
 
                 # 1. Mode Selector Modal Intercept
                 if mode_selector_open:
-                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect, hm_rect, at_rect = renderer.get_mode_selector_rects()
+                    c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect, hm_rect, at_rect, ch_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
 
@@ -574,6 +580,8 @@ def main() -> None:
                         switch_to_mode("Hero Mode")
                     elif at_rect.collidepoint(event_pos):
                         switch_to_mode("Atomic Chess")
+                    elif ch_rect.collidepoint(event_pos):
+                        switch_to_mode("Crazyhouse")
                     elif vs_bot_r.collidepoint(event_pos):
                         bot_controller.enabled = True
                         Assets.play_sound("move")
@@ -765,6 +773,27 @@ def main() -> None:
                         game_state.mode.set_target_color(chess.BLACK)
                         continue
 
+                # Crazyhouse Reserve Tray Click
+                if isinstance(game_state.mode, CrazyhouseMode) and not bot_controller.is_bot_turn(game_state):
+                    reserve_rects = renderer.get_crazyhouse_reserve_rects(game_state)
+                    tray_clicked = False
+                    for pt, r_rect in reserve_rects.items():
+                        if r_rect.collidepoint(event_pos):
+                            pocket_cnt = game_state.board.pockets[game_state.turn].count(pt) if hasattr(game_state.board, "pockets") else 0
+                            if pocket_cnt > 0:
+                                if game_state.mode.selected_drop_piece == pt:
+                                    game_state.mode.selected_drop_piece = None
+                                    legal_destinations = []
+                                else:
+                                    game_state.mode.selected_drop_piece = pt
+                                    selected_square = None
+                                    legal_destinations = game_state.mode.get_legal_drops(game_state, pt)
+                                    Assets.play_sound("move")
+                                tray_clicked = True
+                                break
+                    if tray_clicked:
+                        continue
+
                 # 4. Board Square Click
                 # In Chess + UNO mode, restrict piece interaction until card is drawn and revealed
                 if isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase != UnoTurnPhase.CARD_ACTIVE:
@@ -790,6 +819,33 @@ def main() -> None:
                         renderer.cancel_start_bounce()
                     elif renderer.is_bounce_animating():
                         renderer.cancel_start_bounce()
+
+                    # Case 0: Drop piece from Crazyhouse reserve is selected
+                    if isinstance(game_state.mode, CrazyhouseMode) and game_state.mode.selected_drop_piece is not None:
+                        drop_pt = game_state.mode.selected_drop_piece
+                        if clicked_sq in legal_destinations:
+                            result = game_state.make_drop_move(clicked_sq, drop_pt)
+                            if result.success:
+                                play_move_sound(result, game_state)
+                                timer.switch_turn(game_state.turn)
+                            game_state.mode.selected_drop_piece = None
+                            legal_destinations = []
+                            selected_square = None
+                        else:
+                            p = game_state.get_piece_at(clicked_sq)
+                            if p is not None and p.color == game_state.turn:
+                                game_state.mode.selected_drop_piece = None
+                                selected_square = clicked_sq
+                                legal_destinations = game_state.get_legal_destinations(clicked_sq)
+                                dragging = True
+                                drag_start_square = clicked_sq
+                                if not timer.started and timer.has_timer and not game_state.is_game_over():
+                                    timer.start(game_state.turn)
+                            else:
+                                game_state.mode.selected_drop_piece = None
+                                legal_destinations = []
+                        continue
+
                     # Case A: Already had a piece selected
                     if selected_square is not None:
                         # Click-to-move destination?
@@ -1013,11 +1069,16 @@ def main() -> None:
                 elif event.key == pygame.K_8 and mode_selector_open:
                     switch_to_mode("Atomic Chess")
 
+                elif event.key == pygame.K_9 and mode_selector_open:
+                    switch_to_mode("Crazyhouse")
+
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
                         mode_selector_open = False
                         timer.resume()
-                    elif pending_promotion is not None or selected_square is not None or dragging:
+                    elif (hasattr(game_state.mode, "selected_drop_piece") and game_state.mode.selected_drop_piece is not None) or pending_promotion is not None or selected_square is not None or dragging:
+                        if hasattr(game_state.mode, "selected_drop_piece"):
+                            game_state.mode.selected_drop_piece = None
                         pending_promotion = None
                         selected_square = None
                         legal_destinations = []
