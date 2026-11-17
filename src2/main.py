@@ -563,6 +563,16 @@ def main() -> None:
                     c_rect, u_rect, s_rect, qp_rect, rd_rect, bd_rect, hm_rect, at_rect, ch_rect = renderer.get_mode_selector_rects()
                     p_rects, minus_r, plus_r = renderer.get_mode_selector_timer_rects()
                     vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = renderer.get_mode_selector_ai_rects()
+                    mini_chips = renderer.get_mode_selector_mini_chip_rects()
+
+                    mini_chip_clicked = False
+                    for chip_rect, m_name in mini_chips:
+                        if chip_rect.collidepoint(event_pos):
+                            switch_to_mode(m_name)
+                            mini_chip_clicked = True
+                            break
+                    if mini_chip_clicked:
+                        continue
 
                     if c_rect.collidepoint(event_pos):
                         switch_to_mode("Classic")
@@ -1161,7 +1171,12 @@ def main() -> None:
 
         # 7. Start Menu / Mode Selector Modal
         if mode_selector_open:
-            renderer.draw_mode_selector_modal(mouse_pos, timer=timer, bot_controller=bot_controller)
+            renderer.draw_mode_selector_modal(
+                mouse_pos,
+                timer=timer,
+                bot_controller=bot_controller,
+                current_mode_name=current_mode_name,
+            )
 
         # 7b. Custom Asset Pack Creator Modal
         if asset_creator_open:
