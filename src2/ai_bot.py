@@ -631,7 +631,18 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
     phase = min(24, game_phase)
     mg_score = mg_w - mg_b
     eg_score = eg_w - eg_b
-    return (mg_score * phase + eg_score * (24 - phase)) // 24
+    tapered = (mg_score * phase + eg_score * (24 - phase)) // 24
+
+    if hasattr(board, "pockets"):
+        pocket_diff = 0
+        for pt in (chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
+            w_c = board.pockets[chess.WHITE].count(pt)
+            b_c = board.pockets[chess.BLACK].count(pt)
+            val = PIECE_VALUES.get(pt, 100)
+            pocket_diff += (w_c - b_c) * (val + 15)
+        tapered += pocket_diff
+
+    return tapered
 
 
 # -----------------------------------------------------------------------------
@@ -666,7 +677,10 @@ def score_move_mvv_lva(
         else:
             score += 3500
 
-    if board.is_capture(move):
+    if move.drop:
+        drop_val = PIECE_VALUES.get(move.drop, 100)
+        score += 2500 + drop_val
+    elif board.is_capture(move):
         victim = board.piece_at(move.to_square)
         attacker = board.piece_at(move.from_square)
         victim_val = PIECE_VALUES.get(victim.piece_type, 100) if victim else 100
@@ -682,9 +696,12 @@ def score_move_mvv_lva(
         score += 3000
 
     if history:
-        att = board.piece_at(move.from_square)
-        if att:
-            score += min(2500, history.get((att.piece_type, move.to_square), 0))
+        if move.drop:
+            score += min(2500, history.get((move.drop, move.to_square), 0))
+        else:
+            att = board.piece_at(move.from_square)
+            if att:
+                score += min(2500, history.get((att.piece_type, move.to_square), 0))
 
     return score
 
@@ -1028,9 +1045,9 @@ def alpha_beta_search(
                     killer_moves[ply][0] = move
             # Record history heuristic
             if not is_capture and history_table is not None:
-                p = board.piece_at(move.from_square)
-                if p:
-                    history_table[(p.piece_type, move.to_square)] = history_table.get((p.piece_type, move.to_square), 0) + depth * depth
+                pt = move.drop if move.drop else (board.piece_at(move.from_square).piece_type if board.piece_at(move.from_square) else None)
+                if pt:
+                    history_table[(pt, move.to_square)] = history_table.get((pt, move.to_square), 0) + depth * depth
             break
 
     # 4. Transposition Table Store

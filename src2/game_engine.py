@@ -37,6 +37,8 @@ class MoveResult:
     is_draw: bool = False
     draw_reason: Optional[str] = None
     error_message: Optional[str] = None
+    is_drop: bool = False
+    drop_piece_type: Optional[int] = None
 
 
 class GameMode:
@@ -298,13 +300,110 @@ class GameState:
         from_square: chess.Square,
         to_square: chess.Square,
         promotion: Optional[int] = None,
+        drop: Optional[int] = None,
     ) -> MoveResult:
         """
-        Attempt to execute a chess move.
+        Attempt to execute a chess move or drop move.
         If the move requires promotion and `promotion` is None, defaults to Queen or rejects.
         """
         if self.is_game_over():
             return MoveResult(success=False, error_message="Game is already over.")
+
+        # Drop move handling (Crazyhouse / variants)
+        if drop is not None:
+            move = chess.Move(to_square, to_square, drop=drop)
+            is_legal = False
+            if hasattr(self.mode, "is_legal_drop"):
+                is_legal = self.mode.is_legal_drop(self, to_square, drop)
+            elif move in self.board.legal_moves:
+                is_legal = True
+
+            if not is_legal:
+                return MoveResult(success=False, error_message="Illegal drop move.")
+
+            if not self.mode.can_move(self, move):
+                return MoveResult(success=False, error_message="Drop blocked by game mode rules.")
+
+            if not all(validator(self, move) for validator in self._pre_move_validators):
+                return MoveResult(success=False, error_message="Drop rejected by validator hook.")
+
+            dropped_piece = chess.Piece(drop, self.board.turn)
+            try:
+                san = self.board.san(move)
+            except Exception:
+                p_sym = dropped_piece.symbol().upper()
+                sq_dest = chess.square_name(to_square)
+                san = f"{p_sym}@{sq_dest}"
+
+            self.board.push(move)
+            self.last_move = (to_square, to_square)
+
+            if hasattr(self.mode, "is_in_check"):
+                is_check = self.mode.is_in_check(self)
+            else:
+                is_check = self.board.is_check()
+
+            if hasattr(self.mode, "is_game_over"):
+                is_over = self.mode.is_game_over(self)
+                w = self.mode.winner(self) if hasattr(self.mode, "winner") else None
+                is_checkmate = is_over and (w is not None)
+                is_draw = is_over and (w is None)
+                is_stalemate = is_draw and (not is_check)
+                is_insufficient = False
+                is_fifty = self.board.is_fifty_moves()
+                is_rep = self.board.is_repetition(3)
+            else:
+                is_checkmate = self.board.is_checkmate()
+                is_stalemate = self.board.is_stalemate()
+                is_insufficient = self.board.is_insufficient_material()
+                is_fifty = self.board.is_fifty_moves()
+                is_rep = self.board.is_repetition(3)
+                is_draw = is_stalemate or is_insufficient or is_fifty or is_rep
+
+            draw_reason = None
+            if is_draw:
+                if is_stalemate:
+                    draw_reason = "Stalemate"
+                elif is_insufficient:
+                    draw_reason = "Insufficient Material"
+                elif is_fifty:
+                    draw_reason = "50-Move Rule"
+                elif is_rep:
+                    draw_reason = "Threefold Repetition"
+
+            result = MoveResult(
+                success=True,
+                move=move,
+                san=san,
+                from_square=to_square,
+                to_square=to_square,
+                piece_moved=dropped_piece,
+                captured_piece=None,
+                is_capture=False,
+                is_castling=False,
+                is_en_passant=False,
+                is_promotion=False,
+                promotion_piece_type=None,
+                is_check=is_check,
+                is_checkmate=is_checkmate,
+                is_stalemate=is_stalemate,
+                is_insufficient_material=is_insufficient,
+                is_fifty_moves=is_fifty,
+                is_repetition=is_rep,
+                is_draw=is_draw,
+                draw_reason=draw_reason,
+                is_drop=True,
+                drop_piece_type=drop,
+            )
+
+            self.move_history.append(result)
+
+            self.mode.on_move_executed(self, result)
+            for hook in self._post_move_hooks:
+                hook(self, result)
+            self.mode.on_turn_change(self)
+
+            return result
 
         piece = self.board.piece_at(from_square)
         if piece is None:
@@ -444,6 +543,14 @@ class GameState:
 
         return result
 
+    def make_drop_move(
+        self,
+        to_square: chess.Square,
+        piece_type: int,
+    ) -> MoveResult:
+        """Attempt to execute a drop move (e.g. in Crazyhouse)."""
+        return self.make_move(from_square=to_square, to_square=to_square, drop=piece_type)
+
     def undo_move(self) -> Optional[MoveResult]:
         """Undo the most recent move, reverting the authoritative board state."""
         if not self.move_history or len(self.board.move_stack) == 0:
@@ -453,11 +560,14 @@ class GameState:
         self.board.pop()
 
         # Remove captured piece if any
-        if last_res.captured_piece:
+        if last_res.captured_piece and last_res.piece_moved:
             capturing_color = "w" if last_res.piece_moved.color == chess.WHITE else "b"
             captured_code = piece_to_code(last_res.captured_piece)
             if captured_code and captured_code in self.captured_pieces[capturing_color]:
                 self.captured_pieces[capturing_color].remove(captured_code)
+
+        if hasattr(self.mode, "sync_captured_pieces"):
+            self.mode.sync_captured_pieces(self)
 
         if self.move_history:
             prev = self.move_history[-1]
