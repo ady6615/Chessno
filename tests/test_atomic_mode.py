@@ -237,9 +237,9 @@ class TestAtomicChessMode(unittest.TestCase):
         self.assertIsNone(self.game_state.board.piece_at(chess.D5))
 
     def test_mode_selector_modal_rects_and_render(self):
-        """Verify renderer has 8 mode selector rects and renders Atomic modal card."""
+        """Verify renderer has 9 mode selector rects and renders Atomic modal card."""
         rects = self.renderer.get_mode_selector_rects()
-        self.assertEqual(len(rects), 8)
+        self.assertEqual(len(rects), 9)
         rect_atomic = rects[7]
         self.assertGreater(rect_atomic.width, 0)
         self.assertGreater(rect_atomic.height, 0)

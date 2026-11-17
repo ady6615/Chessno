@@ -33,6 +33,10 @@ from ai_bot import (
 
 
 class TestAIBotLevels(unittest.TestCase):
+    def setUp(self):
+        from ai_bot import TRANSPOSITION_TABLE
+        TRANSPOSITION_TABLE.clear()
+
     def test_metadata_structure(self):
         """Verify all 4 difficulty levels exist with accurate metadata."""
         levels = [

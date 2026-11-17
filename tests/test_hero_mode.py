@@ -259,9 +259,9 @@ class TestHeroMode(unittest.TestCase):
         mode = HeroMode()
         state = GameState(mode=mode)
 
-        # Modal rects must return 8 items
+        # Modal rects must return 9 items
         rects = self.renderer.get_mode_selector_rects()
-        self.assertEqual(len(rects), 8)
+        self.assertEqual(len(rects), 9)
         rect_hero = rects[6]
         self.assertGreater(rect_hero.width, 0)
         self.assertGreater(rect_hero.height, 0)
