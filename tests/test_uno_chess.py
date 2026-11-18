@@ -520,6 +520,7 @@ class TestUnoShuffleAndButtonDraw(unittest.TestCase):
     def test_instant_draw_bypasses_shuffle(self):
         mode = ChessUnoMode()
         state = GameState(mode=mode)
+        mode.deck.draw_pile.append(UnoCard(UnoCardType.ONE, UnoCardColor.BLUE))
         self.assertEqual(mode.phase, UnoTurnPhase.AWAITING_DRAW)
 
         # Trigger draw without animation

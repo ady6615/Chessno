@@ -31,6 +31,7 @@ from crazyhouse_engine import (
 )
 from renderer import ChessRenderer
 from ai_bot import BotDifficulty, select_best_move, TRANSPOSITION_TABLE
+import Assets
 
 
 class TestCrazyhouseMode(unittest.TestCase):
@@ -230,6 +231,52 @@ class TestCrazyhouseMode(unittest.TestCase):
         self.renderer.draw_mode_selector_modal(
             mouse_pos=(600, 450),
             bot_controller=None,
+        )
+
+    def test_crazyhouse_reserve_piece_asset_codes_match_loaded_images(self):
+        """Verify all 5 Crazyhouse pieces resolve to valid piece codes in piece_images."""
+        from coordinates import piece_to_code
+        _, piece_images = Assets.load_assets("Default")
+        for color in [chess.WHITE, chess.BLACK]:
+            for pt in CRAZYHOUSE_PIECE_ORDER:
+                code = piece_to_code(chess.Piece(pt, color))
+                self.assertIsNotNone(code)
+                self.assertIn(code, piece_images, f"Piece code '{code}' must exist in piece_images")
+
+    def test_crazyhouse_reserve_slots_render_with_captured_assets(self):
+        """Verify reserve slots render piece images when pockets contain captured pieces."""
+        _, piece_images = Assets.load_assets("Default")
+        # Add captured pieces for both sides
+        self.game_state.board.pockets[chess.WHITE].add(chess.PAWN)
+        self.game_state.board.pockets[chess.WHITE].add(chess.QUEEN)
+        self.game_state.board.pockets[chess.BLACK].add(chess.ROOK)
+        self.game_state.board.pockets[chess.BLACK].add(chess.KNIGHT)
+        self.game_state.board.pockets[chess.BLACK].add(chess.BISHOP)
+
+        # White turn rendering
+        self.game_state.board.turn = chess.WHITE
+        self.renderer.draw_panel(
+            game_state=self.game_state,
+            mouse_pos=(1000, 600),
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            sound_enabled=True,
+            flipped=False,
+            piece_images=piece_images,
+        )
+
+        # Black turn rendering
+        self.game_state.board.turn = chess.BLACK
+        self.renderer.draw_panel(
+            game_state=self.game_state,
+            mouse_pos=(1000, 600),
+            active_pack_name="Default",
+            active_pack_index=0,
+            total_packs=1,
+            sound_enabled=True,
+            flipped=True,
+            piece_images=piece_images,
         )
 
 

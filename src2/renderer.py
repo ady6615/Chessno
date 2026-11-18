@@ -3543,7 +3543,8 @@ class ChessRenderer:
             # Draw the 5 reserve slots for active player
             sel_drop = getattr(game_state.mode, "selected_drop_piece", None)
             reserve_rects = self.get_crazyhouse_reserve_rects(game_state)
-            color_prefix = "w" if game_state.turn == chess.WHITE else "b"
+            if not piece_images:
+                piece_images = Assets.PIECE_IMAGES
 
             for pt in CRAZYHOUSE_PIECE_ORDER:
                 s_rect = reserve_rects[pt]
@@ -3556,29 +3557,48 @@ class ChessRenderer:
                 pygame.draw.rect(self.screen, slot_bg, s_rect, border_radius=5)
                 pygame.draw.rect(self.screen, slot_border, s_rect, width=2 if is_selected else 1, border_radius=5)
 
-                code = f"{color_prefix}{chess.piece_symbol(pt).upper()}"
+                code = piece_to_code(chess.Piece(pt, game_state.turn))
                 if piece_images and code in piece_images:
-                    icon = pygame.transform.smoothscale(piece_images[code], (22, 22))
+                    icon = pygame.transform.smoothscale(piece_images[code], (24, 24))
                     if count == 0:
-                        icon.set_alpha(80)
+                        icon = icon.copy()
+                        icon.set_alpha(70)
                     self.screen.blit(icon, icon.get_rect(center=(s_rect.centerx, s_rect.y + 16)))
+                else:
+                    letter = chess.piece_symbol(pt).upper()
+                    col = (240, 240, 240) if game_state.turn == chess.WHITE else (180, 180, 180)
+                    l_surf = self.font_subtitle.render(letter, True, col if count > 0 else (80, 90, 105))
+                    self.screen.blit(l_surf, l_surf.get_rect(center=(s_rect.centerx, s_rect.y + 16)))
 
-                cnt_col = (255, 215, 60) if is_selected else (TEXT_PRIMARY if count > 0 else TEXT_MUTED)
+                cnt_col = (255, 215, 60) if is_selected else (TEXT_PRIMARY if count > 0 else (120, 130, 145))
                 cnt_txt = self.font_micro.render(f"x{count}", True, cnt_col)
-                self.screen.blit(cnt_txt, cnt_txt.get_rect(center=(s_rect.centerx, s_rect.bottom - 10)))
+                self.screen.blit(cnt_txt, cnt_txt.get_rect(center=(s_rect.centerx, s_rect.bottom - 9)))
 
             # Opponent reserve compact summary
             opp_color = chess.BLACK if game_state.turn == chess.WHITE else chess.WHITE
             opp_name = "Black" if game_state.turn == chess.WHITE else "White"
+            opp_title_surf = self.font_micro.render(f"{opp_name}'s Reserve:", True, TEXT_MUTED)
+            self.screen.blit(opp_title_surf, (caps_box.x + 10, caps_box.y + 72))
+
+            opp_has_pieces = False
             if hasattr(game_state.board, "pockets"):
                 opp_pocket = game_state.board.pockets[opp_color]
-                opp_parts = [f"{chess.piece_symbol(pt).upper()}:{opp_pocket.count(pt)}" for pt in CRAZYHOUSE_PIECE_ORDER if opp_pocket.count(pt) > 0]
-                opp_summary = " ".join(opp_parts) if opp_parts else "Empty"
-            else:
-                opp_summary = "Empty"
+                curr_x = caps_box.x + 14 + opp_title_surf.get_width()
+                for pt in CRAZYHOUSE_PIECE_ORDER:
+                    c = opp_pocket.count(pt)
+                    if c > 0:
+                        opp_has_pieces = True
+                        code_opp = piece_to_code(chess.Piece(pt, opp_color))
+                        if piece_images and code_opp in piece_images:
+                            mini_icon = pygame.transform.smoothscale(piece_images[code_opp], (16, 16))
+                            self.screen.blit(mini_icon, (curr_x, caps_box.y + 70))
+                            curr_x += 18
+                        c_surf = self.font_micro.render(f"{c}", True, TEXT_SECONDARY)
+                        self.screen.blit(c_surf, (curr_x, caps_box.y + 72))
+                        curr_x += c_surf.get_width() + 6
 
-            opp_str = f"{opp_name}'s Reserve: {opp_summary}"
-            self.screen.blit(self.font_micro.render(opp_str, True, TEXT_MUTED), (caps_box.x + 10, caps_box.y + 72))
+            if not opp_has_pieces:
+                self.screen.blit(self.font_micro.render("Empty", True, TEXT_MUTED), (caps_box.x + 14 + opp_title_surf.get_width(), caps_box.y + 72))
 
             # Helper status hint
             if sel_drop is not None:

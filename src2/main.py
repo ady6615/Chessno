@@ -1128,7 +1128,7 @@ def main() -> None:
         # 3c. Atomic Chess Explosion Blast VFX Overlay
         renderer.draw_atomic_explosion()
 
-        # 4. Floating dragged piece following mouse cursor
+        # 4. Floating dragged piece or Crazyhouse drop piece following mouse cursor
         if dragging and selected_square is not None:
             piece = game_state.get_piece_at(selected_square)
             code = piece_to_code(piece)
@@ -1138,6 +1138,12 @@ def main() -> None:
                     code = hero_code
             if code:
                 renderer.draw_dragged_piece(piece_images, code, mouse_pos)
+        elif isinstance(game_state.mode, CrazyhouseMode) and getattr(game_state.mode, "selected_drop_piece", None) is not None:
+            if mouse_pos[0] < renderer.panel_x:
+                drop_piece = chess.Piece(game_state.mode.selected_drop_piece, game_state.turn)
+                code = piece_to_code(drop_piece)
+                if code:
+                    renderer.draw_dragged_piece(piece_images, code, mouse_pos)
 
         # 5. Interactive Pawn Promotion Dialog
         if pending_promotion is not None:
