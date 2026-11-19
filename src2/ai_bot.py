@@ -372,6 +372,115 @@ BOT_DIFFICULTY_METADATA = {
 }
 
 
+def evaluate_atomic_chess(board: chess.Board) -> int:
+    """
+    Specialized Atomic Chess evaluation engine:
+    1. Instant variant game over: king destroyed or checkmate.
+    2. Atomic Piece Valuation (Knights & Queens high tactical value, Pawns essential shield).
+    3. King Blast Proximity & Threat Analysis:
+       - Detects if any opponent piece can detonate a friendly non-pawn adjacent to our King.
+       - Detects winning blast capture opportunities against opponent's king.
+       - Rewards explosion-proof pawn shields adjacent to the King.
+    4. Connected Kings immunity detection.
+    5. Tactical mobility and piece activity.
+    """
+    if board.is_game_over():
+        outcome = board.outcome()
+        if outcome and outcome.winner is not None:
+            return 30000 if outcome.winner == chess.WHITE else -30000
+        return 0
+
+    w_king = board.king(chess.WHITE)
+    b_king = board.king(chess.BLACK)
+    if w_king is None:
+        return -30000
+    if b_king is None:
+        return 30000
+
+    # Atomic specific piece values (cp)
+    ATOMIC_PIECE_VALUES = {
+        chess.PAWN: 140,
+        chess.KNIGHT: 430,
+        chess.BISHOP: 340,
+        chess.ROOK: 500,
+        chess.QUEEN: 1000,
+    }
+
+    # 1. Material sum
+    score = 0
+    for pt, val in ATOMIC_PIECE_VALUES.items():
+        w_cnt = len(board.pieces(pt, chess.WHITE))
+        b_cnt = len(board.pieces(pt, chess.BLACK))
+        score += (w_cnt - b_cnt) * val
+
+    # 2. Connected Kings immunity: kings adjacent to each other cannot explode each other
+    wk_f, wk_r = chess.square_file(w_king), chess.square_rank(w_king)
+    bk_f, bk_r = chess.square_file(b_king), chess.square_rank(b_king)
+    connected_kings = max(abs(wk_f - bk_f), abs(wk_r - bk_r)) <= 1
+
+    # 3. King Blast Proximity & Threat Detection
+    if not connected_kings:
+        # A) White King Safety
+        for df in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if df == 0 and dr == 0:
+                    continue
+                nf = wk_f + df
+                nr = wk_r + dr
+                if 0 <= nf <= 7 and 0 <= nr <= 7:
+                    sq = chess.square(nf, nr)
+                    p = board.piece_at(sq)
+                    if p is not None:
+                        if p.color == chess.WHITE:
+                            if p.piece_type == chess.PAWN:
+                                # Shield pawns are immune to blast waves!
+                                score += 65
+                            else:
+                                # Non-pawn piece adjacent to White King is a detonation hazard!
+                                score -= 120
+                                # If attacked by Black, Black can detonate White King next move!
+                                if board.is_attacked_by(chess.BLACK, sq):
+                                    score -= 4500
+                        else:
+                            # Black piece adjacent to White King: danger
+                            score -= 200
+
+        # B) Black King Safety
+        for df in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if df == 0 and dr == 0:
+                    continue
+                nf = bk_f + df
+                nr = bk_r + dr
+                if 0 <= nf <= 7 and 0 <= nr <= 7:
+                    sq = chess.square(nf, nr)
+                    p = board.piece_at(sq)
+                    if p is not None:
+                        if p.color == chess.BLACK:
+                            if p.piece_type == chess.PAWN:
+                                # Black shield pawns
+                                score -= 65
+                            else:
+                                # Non-pawn piece adjacent to Black King is a target for White!
+                                score += 120
+                                if board.is_attacked_by(chess.WHITE, sq):
+                                    score += 4500
+                        else:
+                            # White piece adjacent to Black King
+                            score += 200
+
+    # 4. Mobility / Central control
+    # Knights in center threaten multiple blast squares
+    for n_sq in board.pieces(chess.KNIGHT, chess.WHITE):
+        dist_to_bk = max(abs(chess.square_file(n_sq) - bk_f), abs(chess.square_rank(n_sq) - bk_r))
+        score += max(0, 5 - dist_to_bk) * 25
+    for n_sq in board.pieces(chess.KNIGHT, chess.BLACK):
+        dist_to_wk = max(abs(chess.square_file(n_sq) - wk_f), abs(chess.square_rank(n_sq) - wk_r))
+        score -= max(0, 5 - dist_to_wk) * 25
+
+    return score
+
+
 # -----------------------------------------------------------------------------
 # Grandmaster Positional Evaluation Engine
 # -----------------------------------------------------------------------------
@@ -387,6 +496,7 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
     - Rooks on open files & 7th rank.
     - Outpost knights defended by pawns.
     - King safety (pawn shield, open files, castling status in middlegame).
+    - Mode-specific specialized evaluations for all chess variants.
     """
     if board.is_checkmate():
         return -30000 if board.turn == chess.WHITE else 30000
@@ -397,6 +507,10 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
         return 0
     if board.is_stalemate() or board.is_insufficient_material():
         return 0
+
+    # 0. Atomic Chess Mode Specialized Evaluation
+    if (game_mode and getattr(game_mode, "name", "") in ("Atomic Chess", "atomic chess", "Atomic")) or isinstance(board, chess.variant.AtomicBoard):
+        return evaluate_atomic_chess(board)
 
     # 1. Queen Pawn Mode Specialized Evaluation
     if game_mode and getattr(game_mode, "name", "") in ("Queen Pawn", "Queen Pawn Game"):
@@ -683,6 +797,15 @@ def score_move_mvv_lva(
         drop_val = PIECE_VALUES.get(move.drop, 100)
         score += 2500 + drop_val
     elif board.is_capture(move):
+        # Atomic Chess instant blast win recognition
+        if hasattr(board, "is_variant_loss") or isinstance(board, chess.variant.AtomicBoard):
+            opp_k = board.king(not board.turn)
+            if opp_k is not None:
+                tf, tr = chess.square_file(move.to_square), chess.square_rank(move.to_square)
+                ok_f, ok_r = chess.square_file(opp_k), chess.square_rank(opp_k)
+                if max(abs(tf - ok_f), abs(tr - ok_r)) <= 1:
+                    return 900000
+
         victim = board.piece_at(move.to_square)
         attacker = board.piece_at(move.from_square)
         victim_val = PIECE_VALUES.get(victim.piece_type, 100) if victim else 100
