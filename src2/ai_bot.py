@@ -19,11 +19,16 @@ Features:
        - Check Extension (extends tactical branches when king is under check).
        - Late Move Reductions (LMR) for quiet non-critical branches.
        - Quiescence Search with Delta Pruning (resolves tactical captures without horizon effect).
-- Specialized support for game variants:
-    - Classic Chess: Full standard FIDE positional & tactical evaluation.
-    - Queen Pawn Game: Pawn-protection, pawn-hunting & queen-safety heuristics.
-    - Immortal Snail: King evasive routing to evade hunting snails.
-    - Chess + UNO: Automatic card draw trigger & multi-move execution.
+- Specialized support & tactical training for all game variants:
+    - Classic Chess: Full standard FIDE positional & tactical evaluation with PeSTO tables.
+    - Atomic Chess: Proximity blast threat detection, explosion-proof pawn shields, connected king sanctuary, and rebalanced piece valuations.
+    - Crazyhouse: Pocket reserve valuation, drop-hole king safety, and forcing drop-check quiescence search.
+    - Hero Mode: Amazon (Queen + Knight) fairy piece mobility, king pursuit, and aggressive pawn promotion rush.
+    - Rook Dash: Cardinal dash lane infiltration, rampart pawns, and back-rank mating alignments.
+    - Bishop Dash: Diagonal dash destination control, pawn color complexes, and diagonal check nets.
+    - Queen Pawn Game: Pawn-protection, queen centralization, pawn-hunting & queen-safety heuristics.
+    - Immortal Snail: King evasive routing to evade hunting snails and trapping opponent kings.
+    - Chess + UNO: Automatic card draw trigger, card advantage valuation, and multi-move execution.
 - Asynchronous, non-blocking background thinking: Pygame maintains rock-solid 60 FPS.
 - Natural human-like reaction pacing with live thinking visual feedback.
 """
