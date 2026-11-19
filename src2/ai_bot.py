@@ -481,6 +481,118 @@ def evaluate_atomic_chess(board: chess.Board) -> int:
     return score
 
 
+def evaluate_hero_mode(board: chess.Board, game_mode: Optional[Any] = None) -> int:
+    """
+    Specialized Hero Mode evaluation engine:
+    1. Hero (Amazon: Queen + Knight) piece valuation & supremacy (1400 cp).
+    2. Pawn Promotion Rush: Pawns promote strictly to Hero pieces (Amazons), so advanced
+       and passed pawns carry enormous strategic weight.
+    3. Hero Mobility & King Pursuit: Distance to enemy King, central influence, and tactical attacks.
+    4. King Safety against devastating Amazon leaping/ray forks and smothered mates.
+    """
+    if game_mode is not None and hasattr(game_mode, "is_game_over") and game_mode.is_game_over(board):
+        w = game_mode.winner(board)
+        if w is not None:
+            return 30000 if w == chess.WHITE else -30000
+        return 0
+
+    w_heroes = list(board.pieces(chess.QUEEN, chess.WHITE))
+    b_heroes = list(board.pieces(chess.QUEEN, chess.BLACK))
+    w_pawns = list(board.pieces(chess.PAWN, chess.WHITE))
+    b_pawns = list(board.pieces(chess.PAWN, chess.BLACK))
+    w_king = board.king(chess.WHITE)
+    b_king = board.king(chess.BLACK)
+
+    if w_king is None:
+        return -30000
+    if b_king is None:
+        return 30000
+
+    score = (len(w_heroes) - len(b_heroes)) * 1400
+
+    # 1. Pawn Promotion Rush & Structure
+    RANK_BONUS_W = {1: 100, 2: 130, 3: 170, 4: 250, 5: 450, 6: 850}
+    RANK_BONUS_B = {6: 100, 5: 130, 4: 170, 3: 250, 2: 450, 1: 850}
+
+    for p in w_pawns:
+        r = chess.square_rank(p)
+        score += RANK_BONUS_W.get(r, 100)
+        # Passed pawn check
+        f = chess.square_file(p)
+        is_passed = True
+        for bp in b_pawns:
+            bf, br = chess.square_file(bp), chess.square_rank(bp)
+            if abs(bf - f) <= 1 and br > r:
+                is_passed = False
+                break
+        if is_passed:
+            score += 150
+
+    for p in b_pawns:
+        r = chess.square_rank(p)
+        score -= RANK_BONUS_B.get(r, 100)
+        f = chess.square_file(p)
+        is_passed = True
+        for wp in w_pawns:
+            wf, wr = chess.square_file(wp), chess.square_rank(wp)
+            if abs(wf - f) <= 1 and wr < r:
+                is_passed = False
+                break
+        if is_passed:
+            score -= 150
+
+    # 2. Hero Proximity, Activity & Safety
+    bk_f, bk_r = chess.square_file(b_king), chess.square_rank(b_king)
+    wk_f, wk_r = chess.square_file(w_king), chess.square_rank(w_king)
+
+    for h_sq in w_heroes:
+        hf, hr = chess.square_file(h_sq), chess.square_rank(h_sq)
+        dist_to_bk = max(abs(hf - bk_f), abs(hr - bk_r))
+        score += (7 - dist_to_bk) * 20
+        # Centralization
+        if 2 <= hf <= 5 and 2 <= hr <= 5:
+            score += 35
+        # Attack around enemy King
+        if dist_to_bk <= 2:
+            score += 60
+        # Danger if attacked by pawn
+        if board.is_attacked_by(chess.BLACK, h_sq):
+            for bp in b_pawns:
+                if chess.square_rank(bp) == hr + 1 and abs(chess.square_file(bp) - hf) == 1:
+                    score -= 400
+                    break
+
+    for h_sq in b_heroes:
+        hf, hr = chess.square_file(h_sq), chess.square_rank(h_sq)
+        dist_to_wk = max(abs(hf - wk_f), abs(hr - wk_r))
+        score -= (7 - dist_to_wk) * 20
+        if 2 <= hf <= 5 and 2 <= hr <= 5:
+            score -= 35
+        if dist_to_wk <= 2:
+            score -= 60
+        if board.is_attacked_by(chess.WHITE, h_sq):
+            for wp in w_pawns:
+                if chess.square_rank(wp) == hr - 1 and abs(chess.square_file(wp) - hf) == 1:
+                    score += 400
+                    break
+
+    # 3. King Safety & Shield
+    for wp in w_pawns:
+        if abs(chess.square_file(wp) - wk_f) <= 1 and chess.square_rank(wp) == wk_r + 1:
+            score += 30
+    for bp in b_pawns:
+        if abs(chess.square_file(bp) - bk_f) <= 1 and chess.square_rank(bp) == bk_r - 1:
+            score -= 30
+
+    if game_mode and hasattr(game_mode, "is_in_check"):
+        if game_mode.is_in_check(board, chess.WHITE):
+            score -= 120
+        if game_mode.is_in_check(board, chess.BLACK):
+            score += 120
+
+    return score
+
+
 # -----------------------------------------------------------------------------
 # Grandmaster Positional Evaluation Engine
 # -----------------------------------------------------------------------------
@@ -511,6 +623,10 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
     # 0. Atomic Chess Mode Specialized Evaluation
     if (game_mode and getattr(game_mode, "name", "") in ("Atomic Chess", "atomic chess", "Atomic")) or isinstance(board, chess.variant.AtomicBoard):
         return evaluate_atomic_chess(board)
+
+    # 0b. Hero Mode Specialized Evaluation
+    if game_mode and getattr(game_mode, "name", "") in ("Hero Mode", "hero mode"):
+        return evaluate_hero_mode(board, game_mode)
 
     # 1. Queen Pawn Mode Specialized Evaluation
     if game_mode and getattr(game_mode, "name", "") in ("Queen Pawn", "Queen Pawn Game"):
