@@ -568,7 +568,8 @@ class ChessRenderer:
         self.atomic_explosion_anim = AtomicExplosionAnimation()
         # Mode selector panel and per-button hover expansion
         self.mode_panel_expanded: bool = True
-        self.mode_panel_anim_height: float = 248.0
+        self.mode_panel_anim_height: float = 572.0
+        self.mode_button_anim_widths: Dict[str, float] = {}
         self.mode_button_anim_heights: Dict[str, float] = {}
 
     def update_layout(self, width: int, height: int, is_fullscreen: bool = False) -> None:
@@ -1661,19 +1662,20 @@ class ChessRenderer:
         return restart_rect_screen
 
     # -------------------------------------------------------------------------
-    # Game Mode Selection Start Menu / Modal (Collapsing Panel)
+    # Game Mode Selection Start Menu / Modal (Column + Horizontal Expansion)
     # -------------------------------------------------------------------------
 
     def get_mode_selector_box_rect(self, expanded: bool = True) -> pygame.Rect:
-        """Return the bounding rectangle of the mode selecting panel (fixed spacious box, height 248)."""
+        """Return the bounding rectangle of the mode selecting panel column."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
-        panel_w = 1060
-        start_x = (screen_w - panel_w) // 2
-        panel_y = 86 + offset_y
-        panel_h = 248
-        return pygame.Rect(start_x, panel_y, panel_w, panel_h)
+        modal_total_w = 1100 if screen_w >= 1140 else min(screen_w - 40, 1100)
+        modal_x = (screen_w - modal_total_w) // 2
+        modal_y = 76 + offset_y
+        mods_w = 430
+        mods_h = 572
+        return pygame.Rect(modal_x, modal_y, mods_w, mods_h)
 
     def get_mode_selector_mini_chip_rects(self) -> List[Tuple[pygame.Rect, str]]:
         """Deprecated: Main mods section no longer collapses into mini chips."""
@@ -1684,45 +1686,39 @@ class ChessRenderer:
         expanded: bool = True,
     ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
         """
-        Return clickable rectangles for the 9 game modes.
-        When expanded=True (default), returns rects with full detail height (96).
-        When expanded=False, returns rects with collapsed height (44) showing only mode names.
+        Return clickable rectangles for the 9 game modes arranged in a vertical column.
+        When expanded=True (default), returns rects with full detail width (406).
+        When expanded=False, returns rects with collapsed width (190) showing only mode names.
         """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
-        panel_w = 1060
-        start_x = (screen_w - panel_w) // 2
-        panel_y = 86 + offset_y
+        modal_total_w = 1100 if screen_w >= 1140 else min(screen_w - 40, 1100)
+        modal_x = (screen_w - modal_total_w) // 2
+        modal_y = 76 + offset_y
+        mods_w = 430
 
-        card_h1 = 96 if expanded else 44
-        card_h2 = 96 if expanded else 44
+        start_btn_x = modal_x + 12
+        start_btn_y = modal_y + 58
+        btn_h = 48
+        gap_y = 9
+        card_w = (mods_w - 24) if expanded else 190
 
-        # Row 1 (5 cards): Classic, UNO, Snail, Queen Pawn, Rook Dash
-        card_w1 = 196
-        gap1 = 14
-        row1_y = panel_y + 36
-        start_x1 = start_x + 10
-
-        rect_classic = pygame.Rect(start_x1 + 0 * (card_w1 + gap1), row1_y, card_w1, card_h1)
-        rect_uno = pygame.Rect(start_x1 + 1 * (card_w1 + gap1), row1_y, card_w1, card_h1)
-        rect_snail = pygame.Rect(start_x1 + 2 * (card_w1 + gap1), row1_y, card_w1, card_h1)
-        rect_queen_pawn = pygame.Rect(start_x1 + 3 * (card_w1 + gap1), row1_y, card_w1, card_h1)
-        rect_rook_dash = pygame.Rect(start_x1 + 4 * (card_w1 + gap1), row1_y, card_w1, card_h1)
-
-        # Row 2 (4 cards): Bishop Dash, Hero Mode, Atomic Chess, Crazyhouse
-        card_w2 = 206
-        gap2 = 16
-        total_w2 = 4 * card_w2 + 3 * gap2
-        start_x2 = start_x + (panel_w - total_w2) // 2
-        row2_y = panel_y + 140
-
-        rect_bishop_dash = pygame.Rect(start_x2 + 0 * (card_w2 + gap2), row2_y, card_w2, card_h2)
-        rect_hero_mode = pygame.Rect(start_x2 + 1 * (card_w2 + gap2), row2_y, card_w2, card_h2)
-        rect_atomic = pygame.Rect(start_x2 + 2 * (card_w2 + gap2), row2_y, card_w2, card_h2)
-        rect_crazyhouse = pygame.Rect(start_x2 + 3 * (card_w2 + gap2), row2_y, card_w2, card_h2)
-
-        return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic, rect_crazyhouse
+        rects = [
+            pygame.Rect(start_btn_x, start_btn_y + i * (btn_h + gap_y), card_w, btn_h)
+            for i in range(9)
+        ]
+        return (
+            rects[0],
+            rects[1],
+            rects[2],
+            rects[3],
+            rects[4],
+            rects[5],
+            rects[6],
+            rects[7],
+            rects[8],
+        )
 
     def get_crazyhouse_reserve_rects(self, game_state: GameState) -> Dict[int, pygame.Rect]:
         """Return clickable rectangles for each piece type in the active player's reserve pocket."""
@@ -1747,36 +1743,59 @@ class ChessRenderer:
         Tuple[pygame.Rect, pygame.Rect, pygame.Rect],
         pygame.Rect,
     ]:
-        """Return clickable rectangles for AI bot settings in the modal."""
+        """Return clickable rectangles for AI bot settings in the right modal panel."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
-        card_w = 216
-        gap = 14
-        total_w = card_w * 4 + gap * 3
-        start_x = (screen_w - total_w) // 2
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
+        modal_total_w = 1100 if screen_w >= 1140 else min(screen_w - 40, 1100)
+        modal_x = (screen_w - modal_total_w) // 2
+        modal_y = 76 + offset_y
+        mods_w = 430
+        gap_between = 20
+        right_x = modal_x + mods_w + gap_between
+        right_w = modal_total_w - mods_w - gap_between
 
-        # Row 1: Game Type & Side Selection (y = 388 + offset_y)
-        rect_vs_bot = pygame.Rect(start_x, 388 + offset_y, 195, 30)
-        rect_vs_local = pygame.Rect(start_x + 205, 388 + offset_y, 195, 30)
+        # Row 1: Game Type (VS AI / 2-Player Local) & Side Selection
+        row1_y = modal_y + 36
+        btn_bot_w = 185
+        btn_local_w = 165
+        rect_vs_bot = pygame.Rect(right_x + 16, row1_y, btn_bot_w, 28)
+        rect_vs_local = pygame.Rect(right_x + 16 + btn_bot_w + 10, row1_y, btn_local_w, 28)
 
         # Side selection buttons (White, Random, Black)
-        side_start_x = start_x + 520
-        btn_side_w = 118
-        side_gap = 8
-        rect_side_white = pygame.Rect(side_start_x, 388 + offset_y, btn_side_w, 30)
-        rect_side_random = pygame.Rect(side_start_x + btn_side_w + side_gap, 388 + offset_y, btn_side_w, 30)
-        rect_side_black = pygame.Rect(side_start_x + (btn_side_w + side_gap) * 2, 388 + offset_y, btn_side_w, 30)
+        side_start_x = right_x + 16 + btn_bot_w + 10 + btn_local_w + 36
+        btn_side_w = 66
+        side_gap = 6
+        rect_side_white = pygame.Rect(side_start_x, row1_y, btn_side_w, 28)
+        rect_side_random = pygame.Rect(side_start_x + btn_side_w + side_gap, row1_y, btn_side_w, 28)
+        rect_side_black = pygame.Rect(side_start_x + (btn_side_w + side_gap) * 2, row1_y, btn_side_w, 28)
         side_rects = (rect_side_white, rect_side_random, rect_side_black)
 
-        # Row 2: 4 Difficulty Cards (y = 428 + offset_y, height = 54)
-        diff_rects = [
-            (pygame.Rect(start_x + i * (card_w + gap), 428 + offset_y, card_w, 54), diff)
-            for i, diff in enumerate(BotDifficulty)
-        ]
+        # 4 Difficulty Cards arranged in a 2x2 grid
+        diff_start_y = modal_y + 74
+        diff_gap_x = 12
+        diff_gap_y = 8
+        card_w = (right_w - 32 - diff_gap_x) // 2
+        card_h = 50
 
-        # Start match prominent button (y = 612 + offset_y)
-        rect_start_match = pygame.Rect(screen_w // 2 - 160, 612 + offset_y, 320, 40)
+        diff_list = list(BotDifficulty)
+        diff_rects = []
+        for idx, diff in enumerate(diff_list):
+            col = idx % 2
+            row = idx // 2
+            c_x = right_x + 16 + col * (card_w + diff_gap_x)
+            c_y = diff_start_y + row * (card_h + diff_gap_y)
+            diff_rects.append((pygame.Rect(c_x, c_y, card_w, card_h), diff))
+
+        # Start match prominent button (placed in right panel)
+        start_btn_w = 380
+        start_btn_h = 44
+        rect_start_match = pygame.Rect(
+            right_x + (right_w - start_btn_w) // 2,
+            modal_y + 348,
+            start_btn_w,
+            start_btn_h,
+        )
 
         return rect_vs_bot, rect_vs_local, diff_rects, side_rects, rect_start_match
 
@@ -1784,6 +1803,15 @@ class ChessRenderer:
         """Return preset rects [(rect, seconds), ...] and (minus_rect, plus_rect) for the start modal."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
+        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
+        modal_total_w = 1100 if screen_w >= 1140 else min(screen_w - 40, 1100)
+        modal_x = (screen_w - modal_total_w) // 2
+        modal_y = 76 + offset_y
+        mods_w = 430
+        gap_between = 20
+        right_x = modal_x + mods_w + gap_between
+        right_w = modal_total_w - mods_w - gap_between
+
         presets = [
             ("Unlimited", None),
             ("1 min", 60),
@@ -1793,20 +1821,20 @@ class ChessRenderer:
             ("15 min", 900),
             ("30 min", 1800),
         ]
-        btn_w, btn_h = 94, 28
-        gap = 10
+        btn_w, btn_h = 80, 28
+        gap = 8
         total_w = len(presets) * btn_w + (len(presets) - 1) * gap
-        start_x = (screen_w - total_w) // 2
-        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
-        y = 532 + offset_y
+        start_x = right_x + (right_w - total_w) // 2
+        y = modal_y + 242
 
         preset_rects = []
         for i, (_, sec) in enumerate(presets):
             r = pygame.Rect(start_x + i * (btn_w + gap), y, btn_w, btn_h)
             preset_rects.append((r, sec))
 
-        minus_rect = pygame.Rect(screen_w // 2 - 96, 568 + offset_y, 38, 26)
-        plus_rect = pygame.Rect(screen_w // 2 + 58, 568 + offset_y, 38, 26)
+        adj_y = y + 36
+        minus_rect = pygame.Rect(right_x + right_w // 2 - 88, adj_y, 38, 26)
+        plus_rect = pygame.Rect(right_x + right_w // 2 + 50, adj_y, 38, 26)
         return preset_rects, minus_rect, plus_rect
 
     def draw_mode_selector_modal(
@@ -1818,7 +1846,8 @@ class ChessRenderer:
     ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
         """
         Draw a modal start menu allowing the player to select the game mode, opponent/AI difficulty, and match timer.
-        The mode selection section uses a sleek collapsing panel that expands when hovered.
+        The mode selection section is arranged as a vertical column on the left that expands horizontally on hover.
+        Remaining options (Opponent, Bot difficulty, Timer, Start button) are shifted to the right panel.
         Returns the mode card Rects for event collision checking.
         """
         screen_w = self.screen.get_width()
@@ -1829,32 +1858,45 @@ class ChessRenderer:
         overlay.fill((12, 14, 18, 238))
         self.screen.blit(overlay, (0, 0))
 
-        title_y = 36 + offset_y
+        title_y = 28 + offset_y
         title_surf = self.font_title.render("SELECT GAME MODE & OPPONENT", True, TEXT_PRIMARY)
         t_rect = title_surf.get_rect(center=(screen_w // 2, title_y))
         self.screen.blit(title_surf, t_rect)
 
-        sub_surf = self.font_normal.render("Select game mode [1-9], match timer, and AI difficulty before starting", True, TEXT_SECONDARY)
-        s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 26))
+        sub_surf = self.font_normal.render("Choose a game mode from the left column • Configure opponent and timer on the right", True, TEXT_SECONDARY)
+        s_rect = sub_surf.get_rect(center=(screen_w // 2, title_y + 24))
         self.screen.blit(sub_surf, s_rect)
 
+        # Modal Geometry
+        modal_total_w = 1100 if screen_w >= 1140 else min(screen_w - 40, 1100)
+        modal_x = (screen_w - modal_total_w) // 2
+        modal_y = 76 + offset_y
+        modal_h = 572
+        mods_w = 430
+        gap_between = 20
+        right_x = modal_x + mods_w + gap_between
+        right_w = modal_total_w - mods_w - gap_between
+        right_h = modal_h
+
         # ---------------------------------------------------------------------
-        # Mode Selection Main Section (Permanent Spacious Panel)
+        # Left Section: Game Modes Column Panel (Permanent Box, Height 572)
         # ---------------------------------------------------------------------
-        panel_rect = self.get_mode_selector_box_rect()
+        mods_panel_rect = pygame.Rect(modal_x, modal_y, mods_w, modal_h)
         self.mode_panel_expanded = True
-        self.mode_panel_anim_height = 248.0
+        self.mode_panel_anim_height = float(modal_h)
 
-        pygame.draw.rect(self.screen, (24, 28, 38), panel_rect, border_radius=10)
-        panel_border = (65, 78, 100) if panel_rect.collidepoint(mouse_pos) else (46, 54, 68)
-        pygame.draw.rect(self.screen, panel_border, panel_rect, width=1, border_radius=10)
+        pygame.draw.rect(self.screen, (24, 28, 38), mods_panel_rect, border_radius=10)
+        panel_border = (65, 78, 100) if mods_panel_rect.collidepoint(mouse_pos) else (46, 54, 68)
+        pygame.draw.rect(self.screen, panel_border, mods_panel_rect, width=1, border_radius=10)
 
-        # Header bar inside main mods panel
-        hdr_txt = self.font_header.render("CHOOSE GAME MODE (9 MODES AVAILABLE)", True, TEXT_PRIMARY)
-        self.screen.blit(hdr_txt, (panel_rect.x + 16, panel_rect.y + 10))
+        # Header bar inside mods panel
+        hdr_txt = self.font_header.render("CHOOSE GAME MODE (9 MODES)", True, TEXT_PRIMARY)
+        self.screen.blit(hdr_txt, (modal_x + 16, modal_y + 12))
 
-        hint_txt = self.font_micro.render("Hover over any mod button to expand details • Click or press [1-9] to select", True, TEXT_SECONDARY)
-        self.screen.blit(hint_txt, (panel_rect.x + 360, panel_rect.y + 14))
+        hint_txt = self.font_micro.render("Hover over any mod to expand details • Click [1-9] to select", True, TEXT_SECONDARY)
+        self.screen.blit(hint_txt, (modal_x + 16, modal_y + 34))
+
+        pygame.draw.line(self.screen, (46, 54, 68), (modal_x + 14, modal_y + 50), (modal_x + mods_w - 14, modal_y + 50), 1)
 
         active_name = current_mode_name or "Classic"
         MODE_METADATA = [
@@ -1891,7 +1933,7 @@ class ChessRenderer:
                 "badge_color": (160, 240, 100),
                 "bullets": [
                     "• Snail steps 1 tile / 5 moves",
-                    "• Crushes pieces; King caught = Defeat",
+                    "• Crushes pieces; King caught = Loss",
                 ],
             },
             {
@@ -1951,7 +1993,7 @@ class ChessRenderer:
                 "badge_color": (255, 145, 75),
                 "bullets": [
                     "• Captures trigger 3x3 explosions",
-                    "• Pawns survive; King blast = Victory",
+                    "• Pawns survive; King blast = Win",
                 ],
             },
             {
@@ -1972,22 +2014,24 @@ class ChessRenderer:
         rects_all = self.get_mode_selector_rects(expanded=True)
         rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic, rect_crazyhouse = rects_all
 
+        base_w = 190.0
+        expanded_w = float(mods_w - 24)  # 406.0
+
         for c_rect, meta in zip(rects_all, MODE_METADATA):
             is_card_active = (meta["id"] == active_meta["id"])
-            base_h = 44.0
-            expanded_h = 96.0
 
-            cur_h = self.mode_button_anim_heights.get(meta["id"], base_h)
-            hit_box = pygame.Rect(c_rect.x, c_rect.y, c_rect.width, int(max(base_h, cur_h)))
+            cur_w = self.mode_button_anim_widths.get(meta["id"], base_w)
+            hit_box = pygame.Rect(c_rect.x, c_rect.y, int(max(base_w, cur_w)), c_rect.height)
             is_card_hov = hit_box.collidepoint(mouse_pos)
 
-            target_h = expanded_h if is_card_hov else base_h
-            cur_h += (target_h - cur_h) * 0.35
-            if abs(target_h - cur_h) < 1.0:
-                cur_h = target_h
-            self.mode_button_anim_heights[meta["id"]] = cur_h
+            target_w = expanded_w if is_card_hov else base_w
+            cur_w += (target_w - cur_w) * 0.35
+            if abs(target_w - cur_w) < 1.0:
+                cur_w = target_w
+            self.mode_button_anim_widths[meta["id"]] = cur_w
+            self.mode_button_anim_heights[meta["id"]] = float(c_rect.height)
 
-            draw_rect = pygame.Rect(c_rect.x, c_rect.y, c_rect.width, int(cur_h))
+            draw_rect = pygame.Rect(c_rect.x, c_rect.y, int(cur_w), c_rect.height)
 
             card_bg = (48, 56, 72) if is_card_hov else ((38, 46, 60) if is_card_active else (30, 35, 46))
             card_border = meta["color"] if (is_card_hov or is_card_active) else (52, 60, 76)
@@ -1996,8 +2040,11 @@ class ChessRenderer:
             pygame.draw.rect(self.screen, card_bg, draw_rect, border_radius=8)
             pygame.draw.rect(self.screen, card_border, draw_rect, width=border_w, border_radius=8)
 
-            if cur_h < 56.0:
-                # COLLAPSED STATE: First it will only show the name of the mod
+            prev_clip = self.screen.get_clip()
+            self.screen.set_clip(draw_rect)
+
+            if cur_w < 260.0:
+                # COLLAPSED STATE: First it will only show the name of the mod and active/number pill
                 t_title = self.font_subtitle.render(meta["title"], True, meta["color"])
                 self.screen.blit(t_title, (draw_rect.x + 12, draw_rect.centery - t_title.get_height() // 2))
 
@@ -2011,17 +2058,27 @@ class ChessRenderer:
                     badge_col = TEXT_MUTED
 
                 badge_surf = self.font_micro.render(badge_str, True, badge_col)
-                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 14, draw_rect.centery - 9, badge_surf.get_width() + 8, 18)
+                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 12, draw_rect.centery - 9, badge_surf.get_width() + 8, 18)
                 pygame.draw.rect(self.screen, badge_bg, badge_r, border_radius=4)
                 self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_r.center))
 
             else:
-                # EXPANDED STATE: After hovering, it will show the remaining details about that mod
-                # 1. Mode title at top
+                # EXPANDED STATE: After hovering horizontally, it reveals remaining details about that mod
+                # 1. Title on Left
                 t_title = self.font_subtitle.render(meta["title"], True, meta["color"])
-                self.screen.blit(t_title, (draw_rect.x + 10, draw_rect.y + 8))
+                self.screen.blit(t_title, (draw_rect.x + 10, draw_rect.y + 6))
 
-                # 2. Action / Active pill
+                # 2. Subtitle badge on Left
+                s_badge = self.font_micro.render(meta["badge"], True, meta["badge_color"])
+                self.screen.blit(s_badge, (draw_rect.x + 10, draw_rect.y + 27))
+
+                # 3. Bullets in Middle
+                bullet0 = self.font_micro.render(meta["bullets"][0], True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
+                self.screen.blit(bullet0, (draw_rect.x + 138, draw_rect.y + 7))
+                bullet1 = self.font_micro.render(meta["bullets"][1], True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
+                self.screen.blit(bullet1, (draw_rect.x + 138, draw_rect.y + 27))
+
+                # 4. Action / Active Pill on Far Right
                 if is_card_active:
                     badge_str = "ACTIVE ✓"
                     badge_bg = (35, 70, 50)
@@ -2036,28 +2093,23 @@ class ChessRenderer:
                     badge_col = TEXT_MUTED
 
                 badge_surf = self.font_micro.render(badge_str, True, badge_col)
-                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 14, draw_rect.y + 6, badge_surf.get_width() + 8, 18)
+                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 10, draw_rect.centery - 10, badge_surf.get_width() + 8, 20)
                 pygame.draw.rect(self.screen, badge_bg, badge_r, border_radius=4)
                 self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_r.center))
 
-                # 3. Subtitle badge
-                s_badge = self.font_micro.render(meta["badge"], True, meta["badge_color"])
-                self.screen.blit(s_badge, (draw_rect.x + 10, draw_rect.y + 26))
-
-                # 4. Bullet details
-                for b_idx, bullet in enumerate(meta["bullets"]):
-                    b_y = draw_rect.y + 46 + b_idx * 18
-                    if b_y + 12 <= draw_rect.bottom:
-                        b_surf = self.font_micro.render(bullet, True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
-                        self.screen.blit(b_surf, (draw_rect.x + 10, b_y))
+            self.screen.set_clip(prev_clip)
 
         # ---------------------------------------------------------------------
-        # Opponent & Bot Difficulty Section
+        # Right Section: Opponent, Difficulty, Timer & Start Match
         # ---------------------------------------------------------------------
-        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 346 + offset_y), (screen_w // 2 + 450, 346 + offset_y), 1)
+        right_panel_rect = pygame.Rect(right_x, modal_y, right_w, right_h)
+        pygame.draw.rect(self.screen, (24, 28, 38), right_panel_rect, border_radius=10)
+        right_panel_border = (65, 78, 100) if right_panel_rect.collidepoint(mouse_pos) else (46, 54, 68)
+        pygame.draw.rect(self.screen, right_panel_border, right_panel_rect, width=1, border_radius=10)
 
-        opp_title = self.font_header.render("OPPONENT & BOT DIFFICULTY", True, CYAN_COLOR)
-        self.screen.blit(opp_title, opp_title.get_rect(center=(screen_w // 2, 362 + offset_y)))
+        # 1. Opponent & Bot Difficulty Section
+        opp_title = self.font_header.render("OPPONENT & BOT SETTINGS", True, CYAN_COLOR)
+        self.screen.blit(opp_title, (right_x + 16, modal_y + 12))
 
         vs_bot_r, vs_local_r, diff_rects, side_rects, start_game_r = self.get_mode_selector_ai_rects()
         is_bot_enabled = bool(bot_controller.enabled) if bot_controller else True
@@ -2070,7 +2122,7 @@ class ChessRenderer:
         bot_border = CYAN_COLOR if is_bot_enabled else (ACCENT_COLOR if hov_bot else BTN_BORDER)
         pygame.draw.rect(self.screen, bot_bg, vs_bot_r, border_radius=6)
         pygame.draw.rect(self.screen, bot_border, vs_bot_r, width=2 if is_bot_enabled else 1, border_radius=6)
-        bot_lbl_str = "● VS AI BOT (Singleplayer)" if is_bot_enabled else "○ VS AI BOT (Singleplayer)"
+        bot_lbl_str = "● VS AI BOT (Solo)" if is_bot_enabled else "○ VS AI BOT (Solo)"
         bot_lbl = self.font_small.render(bot_lbl_str, True, CYAN_COLOR if is_bot_enabled else TEXT_PRIMARY)
         self.screen.blit(bot_lbl, bot_lbl.get_rect(center=vs_bot_r.center))
 
@@ -2086,8 +2138,8 @@ class ChessRenderer:
 
         # Side Selection (White, Random, Black)
         w_side_r, r_side_r, b_side_r = side_rects
-        side_caption = self.font_micro.render("Play Side:", True, TEXT_MUTED if not is_bot_enabled else TEXT_SECONDARY)
-        self.screen.blit(side_caption, (w_side_r.x - 62, w_side_r.centery - 6))
+        side_caption = self.font_micro.render("Side:", True, TEXT_MUTED if not is_bot_enabled else TEXT_SECONDARY)
+        self.screen.blit(side_caption, (w_side_r.x - 30, w_side_r.centery - 6))
 
         for s_rect, s_name, is_sel in [
             (w_side_r, "White ♔", is_bot_enabled and curr_side == chess.WHITE),
@@ -2102,7 +2154,7 @@ class ChessRenderer:
             s_txt = self.font_small.render(s_name, True, ACCENT_COLOR if is_sel else (TEXT_PRIMARY if is_bot_enabled else TEXT_MUTED))
             self.screen.blit(s_txt, s_txt.get_rect(center=s_rect.center))
 
-        # 4 Bot Difficulty Cards
+        # 4 Bot Difficulty Cards (2x2 Grid)
         for d_rect, diff in diff_rects:
             meta = BOT_DIFFICULTY_METADATA[diff]
             is_active_diff = is_bot_enabled and (curr_diff == diff)
@@ -2125,27 +2177,26 @@ class ChessRenderer:
             pygame.draw.rect(self.screen, d_bg, d_rect, border_radius=8)
             pygame.draw.rect(self.screen, d_border, d_rect, width=bw, border_radius=8)
 
-            # Title & Elo badge
             title_str = f"{meta['level_num']}. {meta['name']}"
             t_surf = self.font_subtitle.render(title_str, True, color_accent if is_active_diff else (TEXT_PRIMARY if is_bot_enabled else TEXT_MUTED))
-            self.screen.blit(t_surf, (d_rect.x + 10, d_rect.y + 10))
+            self.screen.blit(t_surf, (d_rect.x + 10, d_rect.y + 8))
 
             elo_surf = self.font_micro.render(meta["elo"], True, color_accent if is_active_diff else TEXT_MUTED)
-            self.screen.blit(elo_surf, (d_rect.right - elo_surf.get_width() - 10, d_rect.y + 10))
+            self.screen.blit(elo_surf, (d_rect.right - elo_surf.get_width() - 10, d_rect.y + 8))
 
             desc_surf = self.font_micro.render(meta["desc"], True, TEXT_SECONDARY if is_bot_enabled else TEXT_MUTED)
-            self.screen.blit(desc_surf, (d_rect.x + 10, d_rect.y + 32))
+            self.screen.blit(desc_surf, (d_rect.x + 10, d_rect.y + 28))
 
-        # ---------------------------------------------------------------------
-        # Pre-Match Match Timer (Time Control) Section
-        # ---------------------------------------------------------------------
-        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 494 + offset_y), (screen_w // 2 + 450, 494 + offset_y), 1)
+        # Divider line between Bot and Timer
+        div1_y = modal_y + 192
+        pygame.draw.line(self.screen, (46, 54, 68), (right_x + 16, div1_y), (right_x + right_w - 16, div1_y), 1)
 
+        # 2. Time Control Section
         timer_title = self.font_header.render("TIME CONTROL (SET MATCH TIMER)", True, GOLD_COLOR)
-        self.screen.blit(timer_title, timer_title.get_rect(center=(screen_w // 2, 510 + offset_y)))
+        self.screen.blit(timer_title, (right_x + 16, div1_y + 10))
 
         timer_sub = self.font_micro.render("Choose match time limit before starting. Clock begins ticking on first move.", True, TEXT_MUTED)
-        self.screen.blit(timer_sub, timer_sub.get_rect(center=(screen_w // 2, 524 + offset_y)))
+        self.screen.blit(timer_sub, (right_x + 16, div1_y + 28))
 
         preset_rects, minus_rect, plus_rect = self.get_mode_selector_timer_rects()
         current_limit = timer.time_limit_seconds if timer else 300
@@ -2185,10 +2236,10 @@ class ChessRenderer:
             p_lbl = self.font_subtitle.render(label, True, txt_color)
             self.screen.blit(p_lbl, p_lbl.get_rect(center=p_rect.center))
 
-        # Custom minute adjuster: [- 1m] [Current: X min] [+ 1m]
+        # Custom minute adjuster: [- 1m] [Selected: X min] [+ 1m]
         curr_min_str = timer.get_time_preset_label() if timer else "5 min"
         curr_lbl = self.font_small.render(f"Selected: {curr_min_str}", True, TEXT_PRIMARY)
-        self.screen.blit(curr_lbl, curr_lbl.get_rect(center=(screen_w // 2 - 18, 581 + offset_y)))
+        self.screen.blit(curr_lbl, curr_lbl.get_rect(center=(right_x + right_w // 2 - 18, div1_y + 98)))
 
         # Minus button
         is_hov_m = minus_rect.collidepoint(mouse_pos)
@@ -2204,11 +2255,11 @@ class ChessRenderer:
         p_txt = self.font_small.render("+1m", True, TEXT_PRIMARY)
         self.screen.blit(p_txt, p_txt.get_rect(center=plus_rect.center))
 
-        # ---------------------------------------------------------------------
-        # Start Match Button
-        # ---------------------------------------------------------------------
-        pygame.draw.line(self.screen, (54, 60, 72), (screen_w // 2 - 450, 602 + offset_y), (screen_w // 2 + 450, 602 + offset_y), 1)
+        # Divider line between Timer and Start
+        div2_y = modal_y + 334
+        pygame.draw.line(self.screen, (46, 54, 68), (right_x + 16, div2_y), (right_x + right_w - 16, div2_y), 1)
 
+        # 3. Start Match Button
         is_hov_start = start_game_r.collidepoint(mouse_pos)
         start_bg = ACCENT_HOVER if is_hov_start else ACCENT_COLOR
         pygame.draw.rect(self.screen, start_bg, start_game_r, border_radius=8)
@@ -2217,7 +2268,29 @@ class ChessRenderer:
         self.screen.blit(start_lbl, start_lbl.get_rect(center=start_game_r.center))
 
         tip_txt = self.font_micro.render("Press [1-9] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
-        self.screen.blit(tip_txt, tip_txt.get_rect(center=(screen_w // 2, 662 + offset_y)))
+        self.screen.blit(tip_txt, tip_txt.get_rect(center=(right_x + right_w // 2, start_game_r.bottom + 16)))
+
+        # 4. Active Mode Briefing Card
+        brief_y = start_game_r.bottom + 32
+        brief_h = right_panel_rect.bottom - brief_y - 14
+        brief_rect = pygame.Rect(right_x + 16, brief_y, right_w - 32, brief_h)
+        pygame.draw.rect(self.screen, (30, 36, 48), brief_rect, border_radius=8)
+        pygame.draw.rect(self.screen, (46, 54, 68), brief_rect, width=1, border_radius=8)
+
+        b_hdr = self.font_subtitle.render(f"ACTIVE MODE: {active_meta['title']}", True, active_meta["color"])
+        self.screen.blit(b_hdr, (brief_rect.x + 12, brief_rect.y + 10))
+
+        b_badge = self.font_micro.render(active_meta["badge"], True, active_meta["badge_color"])
+        self.screen.blit(b_badge, (brief_rect.right - b_badge.get_width() - 12, brief_rect.y + 12))
+
+        b_bullet0 = self.font_micro.render(active_meta["bullets"][0], True, TEXT_PRIMARY)
+        self.screen.blit(b_bullet0, (brief_rect.x + 12, brief_rect.y + 34))
+
+        b_bullet1 = self.font_micro.render(active_meta["bullets"][1], True, TEXT_PRIMARY)
+        self.screen.blit(b_bullet1, (brief_rect.x + 12, brief_rect.y + 54))
+
+        b_sub = self.font_micro.render("AI Engine bot heuristics trained and fully active for this mode.", True, (120, 220, 180))
+        self.screen.blit(b_sub, (brief_rect.x + 12, brief_rect.y + 74))
 
         return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic
 

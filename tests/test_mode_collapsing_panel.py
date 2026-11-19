@@ -41,52 +41,43 @@ class TestModeCollapsingPanel(unittest.TestCase):
         cls.renderer = ChessRenderer(screen=cls.screen)
 
     def setUp(self):
+        self.renderer.mode_button_anim_widths.clear()
         self.renderer.mode_button_anim_heights.clear()
 
     def test_mode_selector_box_rect_dimensions(self):
-        """Main mods section has a permanent, fixed spacious box (height 248)."""
+        """Main mods section has a permanent, fixed spacious column box (height >= 500, width >= 400)."""
         panel_r = self.renderer.get_mode_selector_box_rect()
-        self.assertEqual(panel_r.height, 248)
-        self.assertGreater(panel_r.width, 900)
+        self.assertGreaterEqual(panel_r.height, 500)
+        self.assertGreaterEqual(panel_r.width, 400)
 
-    def test_9_mode_card_rects_and_rows(self):
-        """Mode selector returns 9 cards arranged in 2 balanced rows for both collapsed and expanded states."""
-        # Expanded state (height 96)
+    def test_9_mode_card_rects_and_column(self):
+        """Mode selector returns 9 cards arranged in a single vertical column with proper spacing in between."""
+        # Expanded state (width >= 400, height 48)
         rects_exp = self.renderer.get_mode_selector_rects(expanded=True)
         self.assertEqual(len(rects_exp), 9)
         for r in rects_exp:
-            self.assertEqual(r.height, 96)
-            self.assertGreater(r.width, 180)
+            self.assertEqual(r.height, 48)
+            self.assertGreaterEqual(r.width, 400)
 
-        # Collapsed state (height 44)
+        # Collapsed state (width <= 200, height 48)
         rects_col = self.renderer.get_mode_selector_rects(expanded=False)
         self.assertEqual(len(rects_col), 9)
         for r in rects_col:
-            self.assertEqual(r.height, 44)
-            self.assertGreater(r.width, 180)
+            self.assertEqual(r.height, 48)
+            self.assertLessEqual(r.width, 200)
 
-        # Row 1 (cards 0 to 4): All share the same Y position
-        row1 = rects_exp[:5]
-        row1_y = row1[0].y
-        for r in row1:
-            self.assertEqual(r.y, row1_y)
+        # All 9 cards share the same left X coordinate (aligned in a column)
+        col_x = rects_exp[0].x
+        for r in rects_exp:
+            self.assertEqual(r.x, col_x)
 
-        # Row 2 (cards 5 to 8): All share the same Y position below Row 1
-        row2 = rects_exp[5:]
-        row2_y = row2[0].y
-        self.assertGreater(row2_y, row1[0].bottom)
-        for r in row2:
-            self.assertEqual(r.y, row2_y)
-
-        # No horizontal overlapping cards within each row
-        for i in range(len(row1) - 1):
-            self.assertLessEqual(row1[i].right, row1[i + 1].x)
-        for i in range(len(row2) - 1):
-            self.assertLessEqual(row2[i].right, row2[i + 1].x)
+        # Vertical ordering with proper spacing in between (no overlapping)
+        for i in range(len(rects_exp) - 1):
+            self.assertGreater(rects_exp[i + 1].y, rects_exp[i].bottom, f"Card {i+1} must be below Card {i} with gap")
 
     def test_modal_rendering_collapsed_buttons_when_mouse_away(self):
-        """When mouse cursor is away, all mod buttons remain collapsed at ~44px showing only mod names."""
-        mouse_pos = (600, 600)  # Away from mode panel (which is around y=86..334)
+        """When mouse cursor is away, all mod buttons remain collapsed at <=200px showing only mod names."""
+        mouse_pos = (900, 600)  # Away from mode panel column
         timer = ChessTimer(time_limit_seconds=300)
         bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
 
@@ -98,12 +89,12 @@ class TestModeCollapsingPanel(unittest.TestCase):
         )
         self.assertEqual(len(ret), 8)
 
-        # All buttons must be in collapsed state (<= 45.0)
-        for mode_id, h in self.renderer.mode_button_anim_heights.items():
-            self.assertLessEqual(h, 56.0, f"Button {mode_id} should be collapsed when unhovered")
+        # All buttons must be in collapsed width state (<= 200.0)
+        for mode_id, w in self.renderer.mode_button_anim_widths.items():
+            self.assertLessEqual(w, 200.0, f"Button {mode_id} should be collapsed horizontally when unhovered")
 
     def test_modal_rendering_expands_individual_button_on_hover(self):
-        """When mouse cursor hovers over a specific mod button, only that button expands to show remaining details."""
+        """When mouse cursor hovers over a specific mod button, only that button expands horizontally to show remaining details."""
         timer = ChessTimer(time_limit_seconds=300)
         bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
 
@@ -121,14 +112,14 @@ class TestModeCollapsingPanel(unittest.TestCase):
                 current_mode_name="Classic",
             )
 
-        # Classic button must have expanded (> 56.0)
-        classic_h = self.renderer.mode_button_anim_heights.get("Classic", 44.0)
-        self.assertGreater(classic_h, 56.0, "Hovered Classic button must expand to show details")
+        # Classic button must have expanded horizontally (> 260.0)
+        classic_w = self.renderer.mode_button_anim_widths.get("Classic", 190.0)
+        self.assertGreater(classic_w, 260.0, "Hovered Classic button must expand horizontally to show details")
 
-        # Other buttons (e.g. Crazyhouse, Snail) must remain collapsed (<= 45.0)
-        for mode_id, h in self.renderer.mode_button_anim_heights.items():
+        # Other buttons (e.g. Crazyhouse, Snail) must remain collapsed (<= 200.0)
+        for mode_id, w in self.renderer.mode_button_anim_widths.items():
             if mode_id != "Classic":
-                self.assertLessEqual(h, 56.0, f"Unhovered button {mode_id} must remain collapsed")
+                self.assertLessEqual(w, 200.0, f"Unhovered button {mode_id} must remain collapsed")
 
     def test_all_modes_render_without_crash(self):
         """All 9 modes render cleanly in both collapsed and hovered expanded states."""
