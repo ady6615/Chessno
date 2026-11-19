@@ -566,9 +566,10 @@ class ChessRenderer:
         self.rook_dash_anim = RookDashAnimation()
         # Atomic Chess capture explosion VFX manager
         self.atomic_explosion_anim = AtomicExplosionAnimation()
-        # Mode selector collapsing panel state and animation
-        self.mode_panel_expanded: bool = False
-        self.mode_panel_anim_height: float = 56.0
+        # Mode selector panel and per-button hover expansion
+        self.mode_panel_expanded: bool = True
+        self.mode_panel_anim_height: float = 248.0
+        self.mode_button_anim_heights: Dict[str, float] = {}
 
     def update_layout(self, width: int, height: int, is_fullscreen: bool = False) -> None:
         """
@@ -1663,19 +1664,30 @@ class ChessRenderer:
     # Game Mode Selection Start Menu / Modal (Collapsing Panel)
     # -------------------------------------------------------------------------
 
-    def get_mode_selector_box_rect(self, expanded: bool = False) -> pygame.Rect:
-        """Return the bounding rectangle of the mode selecting panel (collapsed or expanded)."""
+    def get_mode_selector_box_rect(self, expanded: bool = True) -> pygame.Rect:
+        """Return the bounding rectangle of the mode selecting panel (fixed spacious box, height 248)."""
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
         panel_w = 1060
         start_x = (screen_w - panel_w) // 2
         panel_y = 86 + offset_y
-        panel_h = 248 if expanded else 56
+        panel_h = 248
         return pygame.Rect(start_x, panel_y, panel_w, panel_h)
 
     def get_mode_selector_mini_chip_rects(self) -> List[Tuple[pygame.Rect, str]]:
-        """Return clickable mini chips for all 9 modes in the collapsed bar."""
+        """Deprecated: Main mods section no longer collapses into mini chips."""
+        return []
+
+    def get_mode_selector_rects(
+        self,
+        expanded: bool = True,
+    ) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+        """
+        Return clickable rectangles for the 9 game modes.
+        When expanded=True (default), returns rects with full detail height (96).
+        When expanded=False, returns rects with collapsed height (44) showing only mode names.
+        """
         screen_w = self.screen.get_width()
         screen_h = self.screen.get_height()
         offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
@@ -1683,42 +1695,13 @@ class ChessRenderer:
         start_x = (screen_w - panel_w) // 2
         panel_y = 86 + offset_y
 
-        chip_w, chip_h = 24, 24
-        gap = 6
-        modes = [
-            "Classic",
-            "Chess + UNO",
-            "Immortal Snail",
-            "Queen Pawn",
-            "Rook Dash",
-            "Bishop Dash",
-            "Hero Mode",
-            "Atomic Chess",
-            "Crazyhouse",
-        ]
-        total_chips_w = len(modes) * chip_w + (len(modes) - 1) * gap
-        chips_start_x = start_x + (panel_w - total_chips_w) // 2
-        chips_y = panel_y + 16
-
-        return [
-            (pygame.Rect(chips_start_x + i * (chip_w + gap), chips_y, chip_w, chip_h), mode_name)
-            for i, mode_name in enumerate(modes)
-        ]
-
-    def get_mode_selector_rects(self) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
-        """Return clickable rectangles for (Classic, UNO, Snail, Queen_Pawn, Rook_Dash, Bishop_Dash, Hero_Mode, Atomic_Chess, Crazyhouse)."""
-        screen_w = self.screen.get_width()
-        screen_h = self.screen.get_height()
-        offset_y = 0 if screen_h <= 900 else max(0, (screen_h - 700) // 2)
-        panel_w = 1060
-        start_x = (screen_w - panel_w) // 2
-        panel_y = 86 + offset_y
+        card_h1 = 96 if expanded else 44
+        card_h2 = 96 if expanded else 44
 
         # Row 1 (5 cards): Classic, UNO, Snail, Queen Pawn, Rook Dash
         card_w1 = 196
-        card_h1 = 96
         gap1 = 14
-        row1_y = panel_y + 38
+        row1_y = panel_y + 36
         start_x1 = start_x + 10
 
         rect_classic = pygame.Rect(start_x1 + 0 * (card_w1 + gap1), row1_y, card_w1, card_h1)
@@ -1729,11 +1712,10 @@ class ChessRenderer:
 
         # Row 2 (4 cards): Bishop Dash, Hero Mode, Atomic Chess, Crazyhouse
         card_w2 = 206
-        card_h2 = 96
         gap2 = 16
         total_w2 = 4 * card_w2 + 3 * gap2
         start_x2 = start_x + (panel_w - total_w2) // 2
-        row2_y = row1_y + card_h1 + 10
+        row2_y = panel_y + 140
 
         rect_bishop_dash = pygame.Rect(start_x2 + 0 * (card_w2 + gap2), row2_y, card_w2, card_h2)
         rect_hero_mode = pygame.Rect(start_x2 + 1 * (card_w2 + gap2), row2_y, card_w2, card_h2)
@@ -1857,28 +1839,22 @@ class ChessRenderer:
         self.screen.blit(sub_surf, s_rect)
 
         # ---------------------------------------------------------------------
-        # Mode Selection Collapsing Panel / Box
+        # Mode Selection Main Section (Permanent Spacious Panel)
         # ---------------------------------------------------------------------
-        box_collapsed = self.get_mode_selector_box_rect(expanded=False)
-        box_expanded = self.get_mode_selector_box_rect(expanded=True)
+        panel_rect = self.get_mode_selector_box_rect()
+        self.mode_panel_expanded = True
+        self.mode_panel_anim_height = 248.0
 
-        if self.mode_panel_expanded:
-            is_mode_hovered = box_expanded.collidepoint(mouse_pos)
-        else:
-            is_mode_hovered = box_collapsed.collidepoint(mouse_pos)
-
-        self.mode_panel_expanded = is_mode_hovered
-
-        target_h = 248.0 if is_mode_hovered else 56.0
-        self.mode_panel_anim_height += (target_h - self.mode_panel_anim_height) * 0.35
-        if abs(target_h - self.mode_panel_anim_height) < 1.0:
-            self.mode_panel_anim_height = target_h
-        cur_panel_h = int(self.mode_panel_anim_height)
-
-        panel_rect = pygame.Rect(box_collapsed.x, box_collapsed.y, box_collapsed.width, cur_panel_h)
         pygame.draw.rect(self.screen, (24, 28, 38), panel_rect, border_radius=10)
-        panel_border = (80, 190, 255) if is_mode_hovered else ((65, 78, 100) if box_collapsed.collidepoint(mouse_pos) else (46, 54, 68))
-        pygame.draw.rect(self.screen, panel_border, panel_rect, width=2 if is_mode_hovered else 1, border_radius=10)
+        panel_border = (65, 78, 100) if panel_rect.collidepoint(mouse_pos) else (46, 54, 68)
+        pygame.draw.rect(self.screen, panel_border, panel_rect, width=1, border_radius=10)
+
+        # Header bar inside main mods panel
+        hdr_txt = self.font_header.render("CHOOSE GAME MODE (9 MODES AVAILABLE)", True, TEXT_PRIMARY)
+        self.screen.blit(hdr_txt, (panel_rect.x + 16, panel_rect.y + 10))
+
+        hint_txt = self.font_micro.render("Hover over any mod button to expand details • Click or press [1-9] to select", True, TEXT_SECONDARY)
+        self.screen.blit(hint_txt, (panel_rect.x + 360, panel_rect.y + 14))
 
         active_name = current_mode_name or "Classic"
         MODE_METADATA = [
@@ -1993,75 +1969,59 @@ class ChessRenderer:
         ]
 
         active_meta = next((m for m in MODE_METADATA if m["id"] == active_name or active_name.startswith(m["id"])), MODE_METADATA[0])
-        rects_all = self.get_mode_selector_rects()
+        rects_all = self.get_mode_selector_rects(expanded=True)
         rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic, rect_crazyhouse = rects_all
 
-        if cur_panel_h < 95:
-            # COLLAPSED STATE
-            # 1. Left side: Tag & Active Mode Pill
-            lbl_tag = self.font_subtitle.render("GAME MODE:", True, (130, 145, 170))
-            self.screen.blit(lbl_tag, (panel_rect.x + 16, panel_rect.y + 19))
+        for c_rect, meta in zip(rects_all, MODE_METADATA):
+            is_card_active = (meta["id"] == active_meta["id"])
+            base_h = 44.0
+            expanded_h = 96.0
 
-            act_title = self.font_header.render(active_meta["title"], True, active_meta["color"])
-            act_title_x = panel_rect.x + 16 + lbl_tag.get_width() + 10
-            self.screen.blit(act_title, (act_title_x, panel_rect.y + 17))
+            cur_h = self.mode_button_anim_heights.get(meta["id"], base_h)
+            hit_box = pygame.Rect(c_rect.x, c_rect.y, c_rect.width, int(max(base_h, cur_h)))
+            is_card_hov = hit_box.collidepoint(mouse_pos)
 
-            act_badge = self.font_micro.render(f"[{active_meta['badge']}]", True, active_meta["badge_color"])
-            self.screen.blit(act_badge, (act_title_x + act_title.get_width() + 10, panel_rect.y + 21))
+            target_h = expanded_h if is_card_hov else base_h
+            cur_h += (target_h - cur_h) * 0.35
+            if abs(target_h - cur_h) < 1.0:
+                cur_h = target_h
+            self.mode_button_anim_heights[meta["id"]] = cur_h
 
-            # 2. Center: 9 Mini Number Pills
-            mini_chips = self.get_mode_selector_mini_chip_rects()
-            for (chip_rect, m_name), meta in zip(mini_chips, MODE_METADATA):
-                is_act = (meta["id"] == active_meta["id"])
-                hov_chip = chip_rect.collidepoint(mouse_pos)
-                chip_bg = meta["color"] if is_act else ((45, 54, 70) if hov_chip else (32, 38, 50))
-                chip_border = (255, 255, 255) if is_act else (meta["color"] if hov_chip else (55, 65, 82))
-                pygame.draw.rect(self.screen, chip_bg, chip_rect, border_radius=5)
-                pygame.draw.rect(self.screen, chip_border, chip_rect, width=1, border_radius=5)
+            draw_rect = pygame.Rect(c_rect.x, c_rect.y, c_rect.width, int(cur_h))
 
-                num_txt = self.font_small.render(str(meta["num"]), True, (15, 25, 20) if is_act else (TEXT_PRIMARY if hov_chip else TEXT_SECONDARY))
-                self.screen.blit(num_txt, num_txt.get_rect(center=chip_rect.center))
+            card_bg = (48, 56, 72) if is_card_hov else ((38, 46, 60) if is_card_active else (30, 35, 46))
+            card_border = meta["color"] if (is_card_hov or is_card_active) else (52, 60, 76)
+            border_w = 2 if (is_card_hov or is_card_active) else 1
 
-            # 3. Right side: Expand prompt
-            expand_pill = pygame.Rect(panel_rect.right - 290, panel_rect.y + 12, 274, 32)
-            hov_expand = expand_pill.collidepoint(mouse_pos) or box_collapsed.collidepoint(mouse_pos)
-            pygame.draw.rect(self.screen, (36, 46, 62) if hov_expand else (28, 34, 46), expand_pill, border_radius=6)
-            pygame.draw.rect(self.screen, ACCENT_COLOR if hov_expand else (60, 75, 96), expand_pill, width=1, border_radius=6)
-            exp_txt = self.font_subtitle.render("▼ HOVER TO EXPAND (9 MODES) ▼", True, ACCENT_HOVER if hov_expand else ACCENT_COLOR)
-            self.screen.blit(exp_txt, exp_txt.get_rect(center=expand_pill.center))
+            pygame.draw.rect(self.screen, card_bg, draw_rect, border_radius=8)
+            pygame.draw.rect(self.screen, card_border, draw_rect, width=border_w, border_radius=8)
 
-        else:
-            # EXPANDED STATE
-            # 1. Header bar inside panel
-            hdr_txt = self.font_header.render("CHOOSE GAME MODE (9 AVAILABLE)", True, TEXT_PRIMARY)
-            self.screen.blit(hdr_txt, (panel_rect.x + 16, panel_rect.y + 10))
-
-            hint_txt = self.font_micro.render("Click card or press [1-9] to select • Move cursor away to collapse ▲", True, TEXT_SECONDARY)
-            self.screen.blit(hint_txt, (panel_rect.x + 300, panel_rect.y + 14))
-
-            col_pill = pygame.Rect(panel_rect.right - 140, panel_rect.y + 8, 124, 24)
-            pygame.draw.rect(self.screen, (32, 40, 52), col_pill, border_radius=5)
-            pygame.draw.rect(self.screen, (60, 75, 96), col_pill, width=1, border_radius=5)
-            col_lbl = self.font_micro.render("▲ COLLAPSE ▲", True, (140, 160, 190))
-            self.screen.blit(col_lbl, col_lbl.get_rect(center=col_pill.center))
-
-            # 2. Draw each of the 9 mode cards
-            for c_rect, meta in zip(rects_all, MODE_METADATA):
-                is_card_hov = c_rect.collidepoint(mouse_pos)
-                is_card_active = (meta["id"] == active_meta["id"])
-
-                card_bg = (48, 56, 72) if is_card_hov else ((38, 46, 60) if is_card_active else (30, 35, 46))
-                card_border = meta["color"] if (is_card_hov or is_card_active) else (52, 60, 76)
-                border_w = 2 if (is_card_hov or is_card_active) else 1
-
-                pygame.draw.rect(self.screen, card_bg, c_rect, border_radius=8)
-                pygame.draw.rect(self.screen, card_border, c_rect, width=border_w, border_radius=8)
-
-                # Mode Title
+            if cur_h < 56.0:
+                # COLLAPSED STATE: First it will only show the name of the mod
                 t_title = self.font_subtitle.render(meta["title"], True, meta["color"])
-                self.screen.blit(t_title, (c_rect.x + 10, c_rect.y + 8))
+                self.screen.blit(t_title, (draw_rect.x + 12, draw_rect.centery - t_title.get_height() // 2))
 
-                # Top-right pill
+                if is_card_active:
+                    badge_str = "ACTIVE ✓"
+                    badge_bg = (35, 70, 50)
+                    badge_col = (110, 240, 160)
+                else:
+                    badge_str = f"[{meta['num']}]"
+                    badge_bg = (40, 48, 62)
+                    badge_col = TEXT_MUTED
+
+                badge_surf = self.font_micro.render(badge_str, True, badge_col)
+                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 14, draw_rect.centery - 9, badge_surf.get_width() + 8, 18)
+                pygame.draw.rect(self.screen, badge_bg, badge_r, border_radius=4)
+                self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_r.center))
+
+            else:
+                # EXPANDED STATE: After hovering, it will show the remaining details about that mod
+                # 1. Mode title at top
+                t_title = self.font_subtitle.render(meta["title"], True, meta["color"])
+                self.screen.blit(t_title, (draw_rect.x + 10, draw_rect.y + 8))
+
+                # 2. Action / Active pill
                 if is_card_active:
                     badge_str = "ACTIVE ✓"
                     badge_bg = (35, 70, 50)
@@ -2076,18 +2036,20 @@ class ChessRenderer:
                     badge_col = TEXT_MUTED
 
                 badge_surf = self.font_micro.render(badge_str, True, badge_col)
-                badge_rect = pygame.Rect(c_rect.right - badge_surf.get_width() - 14, c_rect.y + 6, badge_surf.get_width() + 8, 18)
-                pygame.draw.rect(self.screen, badge_bg, badge_rect, border_radius=4)
-                self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_rect.center))
+                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 14, draw_rect.y + 6, badge_surf.get_width() + 8, 18)
+                pygame.draw.rect(self.screen, badge_bg, badge_r, border_radius=4)
+                self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_r.center))
 
-                # Subtitle badge
+                # 3. Subtitle badge
                 s_badge = self.font_micro.render(meta["badge"], True, meta["badge_color"])
-                self.screen.blit(s_badge, (c_rect.x + 10, c_rect.y + 26))
+                self.screen.blit(s_badge, (draw_rect.x + 10, draw_rect.y + 26))
 
-                # Bullets
+                # 4. Bullet details
                 for b_idx, bullet in enumerate(meta["bullets"]):
-                    b_surf = self.font_micro.render(bullet, True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
-                    self.screen.blit(b_surf, (c_rect.x + 10, c_rect.y + 46 + b_idx * 18))
+                    b_y = draw_rect.y + 46 + b_idx * 18
+                    if b_y + 12 <= draw_rect.bottom:
+                        b_surf = self.font_micro.render(bullet, True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
+                        self.screen.blit(b_surf, (draw_rect.x + 10, b_y))
 
         # ---------------------------------------------------------------------
         # Opponent & Bot Difficulty Section

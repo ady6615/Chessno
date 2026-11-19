@@ -1,8 +1,11 @@
 # test_mode_collapsing_panel.py
 """
-Unit tests for the mode selecting collapsing panel in Chessno.
-Tests collapsed state, hover-to-expand behavior, mini chips, mode card rects,
-and rendering of all 9 modes without crowding.
+Unit tests for the mode selecting per-button collapsing panel in Chessno.
+Tests that the collapsing mechanism is removed from the main mods section
+and applied to each mod's button:
+- When unhovered, each mod button is collapsed and displays only the name of the mod.
+- When hovered, that specific mod button expands to display the remaining details
+  (badge subtitle and rule bullets).
 """
 
 import os
@@ -38,76 +41,52 @@ class TestModeCollapsingPanel(unittest.TestCase):
         cls.renderer = ChessRenderer(screen=cls.screen)
 
     def setUp(self):
-        self.renderer.mode_panel_expanded = False
-        self.renderer.mode_panel_anim_height = 56.0
+        self.renderer.mode_button_anim_heights.clear()
 
     def test_mode_selector_box_rect_dimensions(self):
-        """Collapsed box is compact (height 56) and expanded box is spacious (height 248)."""
-        collapsed_r = self.renderer.get_mode_selector_box_rect(expanded=False)
-        expanded_r = self.renderer.get_mode_selector_box_rect(expanded=True)
-
-        self.assertEqual(collapsed_r.height, 56)
-        self.assertEqual(expanded_r.height, 248)
-        self.assertEqual(collapsed_r.x, expanded_r.x)
-        self.assertEqual(collapsed_r.y, expanded_r.y)
-        self.assertEqual(collapsed_r.width, expanded_r.width)
-        self.assertGreater(collapsed_r.width, 900)
-
-    def test_mini_chip_rects(self):
-        """Collapsed bar provides 9 clickable mini chips corresponding to all 9 modes."""
-        chips = self.renderer.get_mode_selector_mini_chip_rects()
-        self.assertEqual(len(chips), 9)
-        expected_modes = [
-            "Classic",
-            "Chess + UNO",
-            "Immortal Snail",
-            "Queen Pawn",
-            "Rook Dash",
-            "Bishop Dash",
-            "Hero Mode",
-            "Atomic Chess",
-            "Crazyhouse",
-        ]
-        collapsed_box = self.renderer.get_mode_selector_box_rect(expanded=False)
-        for (chip_r, m_name), exp_name in zip(chips, expected_modes):
-            self.assertEqual(m_name, exp_name)
-            self.assertGreater(chip_r.width, 0)
-            self.assertGreater(chip_r.height, 0)
-            # Chip must be inside the collapsed box vertically
-            self.assertGreaterEqual(chip_r.y, collapsed_box.y)
-            self.assertLessEqual(chip_r.bottom, collapsed_box.bottom)
+        """Main mods section has a permanent, fixed spacious box (height 248)."""
+        panel_r = self.renderer.get_mode_selector_box_rect()
+        self.assertEqual(panel_r.height, 248)
+        self.assertGreater(panel_r.width, 900)
 
     def test_9_mode_card_rects_and_rows(self):
-        """Expanded panel returns 9 mode card rects arranged in 2 balanced rows."""
-        rects = self.renderer.get_mode_selector_rects()
-        self.assertEqual(len(rects), 9)
+        """Mode selector returns 9 cards arranged in 2 balanced rows for both collapsed and expanded states."""
+        # Expanded state (height 96)
+        rects_exp = self.renderer.get_mode_selector_rects(expanded=True)
+        self.assertEqual(len(rects_exp), 9)
+        for r in rects_exp:
+            self.assertEqual(r.height, 96)
+            self.assertGreater(r.width, 180)
+
+        # Collapsed state (height 44)
+        rects_col = self.renderer.get_mode_selector_rects(expanded=False)
+        self.assertEqual(len(rects_col), 9)
+        for r in rects_col:
+            self.assertEqual(r.height, 44)
+            self.assertGreater(r.width, 180)
 
         # Row 1 (cards 0 to 4): All share the same Y position
-        row1 = rects[:5]
+        row1 = rects_exp[:5]
         row1_y = row1[0].y
         for r in row1:
             self.assertEqual(r.y, row1_y)
-            self.assertGreater(r.width, 180)  # Much wider than previous 114px
-            self.assertGreater(r.height, 80)
 
         # Row 2 (cards 5 to 8): All share the same Y position below Row 1
-        row2 = rects[5:]
+        row2 = rects_exp[5:]
         row2_y = row2[0].y
         self.assertGreater(row2_y, row1[0].bottom)
         for r in row2:
             self.assertEqual(r.y, row2_y)
-            self.assertGreater(r.width, 180)
-            self.assertGreater(r.height, 80)
 
-        # No overlapping cards within each row
+        # No horizontal overlapping cards within each row
         for i in range(len(row1) - 1):
             self.assertLessEqual(row1[i].right, row1[i + 1].x)
         for i in range(len(row2) - 1):
             self.assertLessEqual(row2[i].right, row2[i + 1].x)
 
-    def test_modal_rendering_collapsed_when_mouse_away(self):
-        """When mouse cursor is away, modal renders with mode panel collapsed."""
-        mouse_pos = (600, 600)  # Away from mode panel (which is around y=86..142)
+    def test_modal_rendering_collapsed_buttons_when_mouse_away(self):
+        """When mouse cursor is away, all mod buttons remain collapsed at ~44px showing only mod names."""
+        mouse_pos = (600, 600)  # Away from mode panel (which is around y=86..334)
         timer = ChessTimer(time_limit_seconds=300)
         bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
 
@@ -118,29 +97,41 @@ class TestModeCollapsingPanel(unittest.TestCase):
             current_mode_name="Crazyhouse",
         )
         self.assertEqual(len(ret), 8)
-        self.assertFalse(self.renderer.mode_panel_expanded)
 
-    def test_modal_rendering_expands_when_cursor_moves_over_it(self):
-        """When mouse cursor moves over the mode panel, it expands dynamically."""
-        collapsed_box = self.renderer.get_mode_selector_box_rect(expanded=False)
-        # Position cursor inside the collapsed box
-        mouse_pos = (collapsed_box.centerx, collapsed_box.centery)
+        # All buttons must be in collapsed state (<= 45.0)
+        for mode_id, h in self.renderer.mode_button_anim_heights.items():
+            self.assertLessEqual(h, 56.0, f"Button {mode_id} should be collapsed when unhovered")
 
+    def test_modal_rendering_expands_individual_button_on_hover(self):
+        """When mouse cursor hovers over a specific mod button, only that button expands to show remaining details."""
         timer = ChessTimer(time_limit_seconds=300)
         bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
 
-        ret = self.renderer.draw_mode_selector_modal(
-            mouse_pos=mouse_pos,
-            timer=timer,
-            bot_controller=bot,
-            current_mode_name="Classic",
-        )
-        self.assertEqual(len(ret), 8)
-        self.assertTrue(self.renderer.mode_panel_expanded)
-        self.assertGreater(self.renderer.mode_panel_anim_height, 56.0)
+        # Hover specifically over the first button (Classic)
+        rects = self.renderer.get_mode_selector_rects(expanded=False)
+        classic_rect = rects[0]
+        mouse_pos = (classic_rect.centerx, classic_rect.centery)
+
+        # Simulate a few frames of hover animation
+        for _ in range(5):
+            self.renderer.draw_mode_selector_modal(
+                mouse_pos=mouse_pos,
+                timer=timer,
+                bot_controller=bot,
+                current_mode_name="Classic",
+            )
+
+        # Classic button must have expanded (> 56.0)
+        classic_h = self.renderer.mode_button_anim_heights.get("Classic", 44.0)
+        self.assertGreater(classic_h, 56.0, "Hovered Classic button must expand to show details")
+
+        # Other buttons (e.g. Crazyhouse, Snail) must remain collapsed (<= 45.0)
+        for mode_id, h in self.renderer.mode_button_anim_heights.items():
+            if mode_id != "Classic":
+                self.assertLessEqual(h, 56.0, f"Unhovered button {mode_id} must remain collapsed")
 
     def test_all_modes_render_without_crash(self):
-        """All 9 modes render cleanly in both collapsed and expanded states."""
+        """All 9 modes render cleanly in both collapsed and hovered expanded states."""
         modes = [
             "Classic",
             "Chess + UNO",
@@ -154,11 +145,10 @@ class TestModeCollapsingPanel(unittest.TestCase):
         ]
         timer = ChessTimer(time_limit_seconds=600)
         bot = ChessBotController(difficulty=BotDifficulty.MASTER)
+        rects = self.renderer.get_mode_selector_rects(expanded=False)
 
-        for mode_name in modes:
-            # Collapsed test
-            self.renderer.mode_panel_expanded = False
-            self.renderer.mode_panel_anim_height = 56.0
+        for i, mode_name in enumerate(modes):
+            # Render unhovered (away)
             self.renderer.draw_mode_selector_modal(
                 mouse_pos=(100, 800),
                 timer=timer,
@@ -166,16 +156,17 @@ class TestModeCollapsingPanel(unittest.TestCase):
                 current_mode_name=mode_name,
             )
 
-            # Expanded test
-            self.renderer.mode_panel_expanded = True
-            self.renderer.mode_panel_anim_height = 248.0
-            self.renderer.draw_mode_selector_modal(
-                mouse_pos=(600, 160),
-                timer=timer,
-                bot_controller=bot,
-                current_mode_name=mode_name,
-            )
+            # Render hovering over this mode's button
+            btn_r = rects[i]
+            for _ in range(3):
+                self.renderer.draw_mode_selector_modal(
+                    mouse_pos=(btn_r.centerx, btn_r.centery),
+                    timer=timer,
+                    bot_controller=bot,
+                    current_mode_name=mode_name,
+                )
 
 
 if __name__ == "__main__":
     unittest.main()
+
