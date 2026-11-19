@@ -19,16 +19,23 @@ os.environ["SDL_VIDEODRIVER"] = "dummy"
 os.environ["SDL_AUDIODRIVER"] = "dummy"
 
 import chess
+import chess.variant
 from game_engine import GameState, ClassicChessMode
 from queen_pawn_engine import QueenPawnMode
 from snail_engine import ImmortalSnailMode
 from uno_engine import ChessUnoMode
+from atomic_engine import AtomicChessMode
+from crazyhouse_engine import CrazyhouseMode
+from hero_mode_engine import HeroMode
+from rook_dash_engine import RookDashMode
+from bishop_dash_engine import BishopDashMode
 from ai_bot import (
     BotDifficulty,
     BOT_DIFFICULTY_METADATA,
     evaluate_board,
     select_best_move,
     ChessBotController,
+    get_mode_legal_moves,
 )
 
 
@@ -165,6 +172,130 @@ class TestAIBotLevels(unittest.TestCase):
         self.assertIsNotNone(chosen)
         self.assertIn(chosen, list(board.legal_moves))
 
+    def test_bot_compatibility_with_atomic_chess(self):
+        """Verify bot evaluates and selects legal moves in Atomic Chess."""
+        mode = AtomicChessMode()
+        board = chess.variant.AtomicBoard()
+        chosen = select_best_move(board, BotDifficulty.MASTER, game_mode=mode)
+        self.assertIsNotNone(chosen)
+        self.assertIn(chosen, list(board.legal_moves))
+
+    def test_bot_atomic_chess_blast_mate_in_one(self):
+        """Verify AI bot recognizes and executes instant atomic blast victory."""
+        mode = AtomicChessMode()
+        board = chess.variant.AtomicBoard()
+        board.clear()
+        board.turn = chess.WHITE
+        board.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        board.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
+        board.set_piece_at(chess.D8, chess.Piece(chess.QUEEN, chess.BLACK))  # adjacent to black king
+        board.set_piece_at(chess.D1, chess.Piece(chess.ROOK, chess.WHITE))
+
+        # White Rook on d1 captures d8 -> explosion destroys Black King!
+        move = select_best_move(board, BotDifficulty.MASTER, game_mode=mode)
+        self.assertEqual(move, chess.Move(chess.D1, chess.D8))
+
+    def test_bot_atomic_chess_pawn_shield_eval(self):
+        """Pawn shields in Atomic chess must evaluate significantly higher than exposed kings."""
+        mode = AtomicChessMode()
+        # b1: White king with pawn shield on e2, d2, f2
+        b1 = chess.variant.AtomicBoard()
+        b1.clear()
+        b1.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        b1.set_piece_at(chess.E2, chess.Piece(chess.PAWN, chess.WHITE))
+        b1.set_piece_at(chess.D2, chess.Piece(chess.PAWN, chess.WHITE))
+        b1.set_piece_at(chess.F2, chess.Piece(chess.PAWN, chess.WHITE))
+        b1.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
+
+        # b2: White king with a non-pawn (Knight) on e2 attacked by Black Rook on e7
+        b2 = chess.variant.AtomicBoard()
+        b2.clear()
+        b2.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        b2.set_piece_at(chess.E2, chess.Piece(chess.KNIGHT, chess.WHITE))  # blast hazard next to King!
+        b2.set_piece_at(chess.E7, chess.Piece(chess.ROOK, chess.BLACK))   # attacks e2!
+        b2.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
+
+        self.assertGreater(evaluate_board(b1, mode), evaluate_board(b2, mode))
+
+    def test_bot_compatibility_with_crazyhouse(self):
+        """Verify bot operates correctly in Crazyhouse variant."""
+        mode = CrazyhouseMode()
+        board = chess.variant.CrazyhouseBoard()
+        chosen = select_best_move(board, BotDifficulty.INTERMEDIATE, game_mode=mode)
+        self.assertIsNotNone(chosen)
+        self.assertIn(chosen, list(board.legal_moves))
+
+    def test_bot_crazyhouse_pocket_reserve_evaluation(self):
+        """Crazyhouse evaluation must reward reserve pocket material and drop threats."""
+        b1 = chess.variant.CrazyhouseBoard()
+        b1.pockets[chess.WHITE].add(chess.QUEEN)
+        b1.pockets[chess.WHITE].add(chess.KNIGHT)
+
+        b2 = chess.variant.CrazyhouseBoard()
+        self.assertGreater(evaluate_board(b1), evaluate_board(b2))
+
+    def test_bot_crazyhouse_drop_move_selection(self):
+        """Verify bot can evaluate and execute reserve pocket drop moves."""
+        mode = CrazyhouseMode()
+        board = chess.variant.CrazyhouseBoard()
+        board.clear()
+        board.turn = chess.WHITE
+        board.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        board.set_piece_at(chess.A8, chess.Piece(chess.KING, chess.BLACK))
+        # White has a Queen in pocket
+        board.pockets[chess.WHITE].add(chess.QUEEN)
+
+        move = select_best_move(board, BotDifficulty.MASTER, game_mode=mode)
+        self.assertIsNotNone(move)
+        # Move must be legal in Crazyhouse
+        self.assertIn(move, list(board.legal_moves))
+
+    def test_bot_compatibility_with_hero_mode(self):
+        """Verify bot operates correctly in Hero Mode across difficulties."""
+        mode = HeroMode()
+        board = chess.Board(mode.INITIAL_FEN)
+        for diff in (BotDifficulty.CASUAL, BotDifficulty.MASTER):
+            chosen = select_best_move(board, diff, game_mode=mode)
+            self.assertIsNotNone(chosen)
+            self.assertTrue(mode.is_legal_move(board, chosen.from_square, chosen.to_square))
+
+    def test_bot_hero_mode_amazon_knight_leap_move(self):
+        """Verify Hero piece can execute Knight jumps in bot search."""
+        mode = HeroMode()
+        board = chess.Board(mode.INITIAL_FEN)
+        # From start position, Hero on d1 can jump over pawns to c3 or e3
+        legal_moves = get_mode_legal_moves(board, mode)
+        c3_jump = chess.Move(chess.D1, chess.C3)
+        self.assertIn(c3_jump, legal_moves)
+
+    def test_bot_hero_mode_pawn_promotion_rush_eval(self):
+        """In Hero Mode, advancing pawns to promote to Amazons must have immense value."""
+        mode = HeroMode()
+        # White pawn on 7th rank (about to promote to Amazon)
+        b1 = chess.Board("3qk3/8/8/8/8/8/4P3/3QK3 w - - 0 1")
+        b1.set_piece_at(chess.E7, chess.Piece(chess.PAWN, chess.WHITE))
+        b1.remove_piece_at(chess.E2)
+
+        # White pawn on 2nd rank
+        b2 = chess.Board("3qk3/8/8/8/8/8/4P3/3QK3 w - - 0 1")
+        self.assertGreater(evaluate_board(b1, mode), evaluate_board(b2, mode))
+
+    def test_bot_compatibility_with_rook_dash(self):
+        """Verify bot generates strictly legal Rook Dash moves."""
+        mode = RookDashMode()
+        board = chess.Board(mode.INITIAL_FEN)
+        chosen = select_best_move(board, BotDifficulty.MASTER, game_mode=mode)
+        self.assertIsNotNone(chosen)
+        self.assertTrue(mode.can_move(chosen, board=board))
+
+    def test_bot_compatibility_with_bishop_dash(self):
+        """Verify bot generates strictly legal Bishop Dash moves."""
+        mode = BishopDashMode()
+        board = chess.Board(mode.INITIAL_FEN)
+        chosen = select_best_move(board, BotDifficulty.MASTER, game_mode=mode)
+        self.assertIsNotNone(chosen)
+        self.assertTrue(mode.can_move(chosen, board=board))
+
 
 class TestChessBotController(unittest.TestCase):
     def setUp(self):
@@ -235,6 +366,25 @@ class TestChessBotController(unittest.TestCase):
         self.assertIsNotNone(move)
         self.assertIn(move, list(self.game.board.legal_moves))
         self.assertFalse(self.controller.is_thinking)
+
+    def test_controller_crazyhouse_drop_execution(self):
+        """Bot controller can plan and dispatch a move in Crazyhouse mode."""
+        ch_game = GameState(mode=CrazyhouseMode())
+        ch_game.board.clear()
+        ch_game.board.turn = chess.BLACK
+        ch_game.board.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
+        ch_game.board.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        ch_game.board.pockets[chess.BLACK].add(chess.QUEEN)
+
+        self.controller.set_player_color(chess.WHITE)
+        self.assertTrue(self.controller.is_bot_turn(ch_game))
+
+        self.controller.update(0.016, ch_game)
+        self.assertTrue(self.controller.is_thinking)
+        time.sleep(0.9)
+        move, _ = self.controller.update(0.016, ch_game)
+        self.assertIsNotNone(move)
+        self.assertIn(move, list(ch_game.board.legal_moves))
 
 
 if __name__ == "__main__":
