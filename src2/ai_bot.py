@@ -593,6 +593,227 @@ def evaluate_hero_mode(board: chess.Board, game_mode: Optional[Any] = None) -> i
     return score
 
 
+def evaluate_queen_pawn(board: chess.Board) -> int:
+    """
+    Specialized Queen Pawn evaluation engine:
+    1. Queen valuation (1200 cp) and pawn valuation (120 cp).
+    2. Queen Activity & Centralization:
+       - Squares controlled by Queen.
+       - Proximity to enemy King.
+       - Heavy penalty (-350 cp) if Queen is attacked by enemy pawns.
+    3. Pawn advancement and promotion rush (promoting to Queens!).
+    4. King Shelter: Protection against sudden queen checks.
+    """
+    if board.is_checkmate():
+        return -30000 if board.turn == chess.WHITE else 30000
+    if board.is_game_over():
+        outcome = board.outcome()
+        if outcome and outcome.winner is not None:
+            return 30000 if outcome.winner == chess.WHITE else -30000
+        return 0
+
+    w_queens = list(board.pieces(chess.QUEEN, chess.WHITE))
+    b_queens = list(board.pieces(chess.QUEEN, chess.BLACK))
+    w_pawns = list(board.pieces(chess.PAWN, chess.WHITE))
+    b_pawns = list(board.pieces(chess.PAWN, chess.BLACK))
+    w_king = board.king(chess.WHITE)
+    b_king = board.king(chess.BLACK)
+
+    if w_king is None:
+        return -30000
+    if b_king is None:
+        return 30000
+
+    score = (len(w_queens) - len(b_queens)) * 1200 + (len(w_pawns) - len(b_pawns)) * 120
+
+    bk_f, bk_r = chess.square_file(b_king), chess.square_rank(b_king)
+    wk_f, wk_r = chess.square_file(w_king), chess.square_rank(w_king)
+
+    for q_sq in w_queens:
+        qf, qr = chess.square_file(q_sq), chess.square_rank(q_sq)
+        dist = max(abs(qf - bk_f), abs(qr - bk_r))
+        score += (7 - dist) * 15
+        if 2 <= qf <= 5 and 2 <= qr <= 5:
+            score += 25
+        if board.is_attacked_by(chess.BLACK, q_sq):
+            score -= 350
+
+    for q_sq in b_queens:
+        qf, qr = chess.square_file(q_sq), chess.square_rank(q_sq)
+        dist = max(abs(qf - wk_f), abs(qr - wk_r))
+        score -= (7 - dist) * 15
+        if 2 <= qf <= 5 and 2 <= qr <= 5:
+            score -= 25
+        if board.is_attacked_by(chess.WHITE, q_sq):
+            score += 350
+
+    # Passed pawns promoting to Queens
+    RANK_PROMO_W = {1: 0, 2: 25, 3: 60, 4: 120, 5: 250, 6: 600}
+    RANK_PROMO_B = {6: 0, 5: 25, 4: 60, 3: 120, 2: 250, 1: 600}
+    for p in w_pawns:
+        score += RANK_PROMO_W.get(chess.square_rank(p), 0)
+    for p in b_pawns:
+        score -= RANK_PROMO_B.get(chess.square_rank(p), 0)
+
+    if board.is_check():
+        score += -120 if board.turn == chess.WHITE else 120
+
+    return score
+
+
+def evaluate_rook_dash(board: chess.Board, game_mode: Optional[Any] = None) -> int:
+    """
+    Specialized Rook Dash evaluation engine:
+    1. Rook material (650 cp) and pawn material (120 cp).
+    2. Dash Mobility & Back-Rank Infiltration:
+       - Rooks dashing into enemy ranks (rank 7/8 for White, rank 2/1 for Black).
+       - Direct ray alignment with enemy King (pins, imminent checkmates).
+    3. Rampart Pawns:
+       - Friendly pawns positioned to serve as strategic dash brake-stops.
+    4. Passed Pawns promoting strictly to dashing Rooks (+450 cp on 7th rank).
+    5. King Safety against unstoppable corridor dashes.
+    """
+    if board.is_checkmate():
+        return -30000 if board.turn == chess.WHITE else 30000
+    if board.is_game_over():
+        outcome = board.outcome()
+        if outcome and outcome.winner is not None:
+            return 30000 if outcome.winner == chess.WHITE else -30000
+        return 0
+
+    w_rooks = list(board.pieces(chess.ROOK, chess.WHITE))
+    b_rooks = list(board.pieces(chess.ROOK, chess.BLACK))
+    w_pawns = list(board.pieces(chess.PAWN, chess.WHITE))
+    b_pawns = list(board.pieces(chess.PAWN, chess.BLACK))
+    w_king = board.king(chess.WHITE)
+    b_king = board.king(chess.BLACK)
+
+    if w_king is None:
+        return -30000
+    if b_king is None:
+        return 30000
+
+    score = (len(w_rooks) - len(b_rooks)) * 650 + (len(w_pawns) - len(b_pawns)) * 120
+
+    # 1. Rook Dash Mobility & Threats
+    from rook_dash_engine import RookDashMode
+    bk_f, bk_r = chess.square_file(b_king), chess.square_rank(b_king)
+    wk_f, wk_r = chess.square_file(w_king), chess.square_rank(w_king)
+
+    for r_sq in w_rooks:
+        rf, rr = chess.square_file(r_sq), chess.square_rank(r_sq)
+        dests = RookDashMode.get_rook_dash_destinations(board, r_sq)
+        score += len(dests) * 20
+        if rr >= 6:
+            score += 120
+        if rf == bk_f or rr == bk_r:
+            score += 90
+        for d in dests:
+            df, dr = chess.square_file(d), chess.square_rank(d)
+            if max(abs(df - bk_f), abs(dr - bk_r)) <= 1:
+                score += 70
+
+    for r_sq in b_rooks:
+        rf, rr = chess.square_file(r_sq), chess.square_rank(r_sq)
+        dests = RookDashMode.get_rook_dash_destinations(board, r_sq)
+        score -= len(dests) * 20
+        if rr <= 1:
+            score -= 120
+        if rf == wk_f or rr == wk_r:
+            score -= 90
+        for d in dests:
+            df, dr = chess.square_file(d), chess.square_rank(d)
+            if max(abs(df - wk_f), abs(dr - wk_r)) <= 1:
+                score -= 70
+
+    # 2. Passed Pawns promoting to Rooks
+    RANK_PROMO_W = {1: 0, 2: 20, 3: 50, 4: 90, 5: 180, 6: 450}
+    RANK_PROMO_B = {6: 0, 5: 20, 4: 50, 3: 90, 2: 180, 1: 450}
+    for p in w_pawns:
+        score += RANK_PROMO_W.get(chess.square_rank(p), 0)
+    for p in b_pawns:
+        score -= RANK_PROMO_B.get(chess.square_rank(p), 0)
+
+    if board.is_check():
+        score += -120 if board.turn == chess.WHITE else 120
+
+    return score
+
+
+def evaluate_bishop_dash(board: chess.Board, game_mode: Optional[Any] = None) -> int:
+    """
+    Specialized Bishop Dash evaluation engine:
+    1. Bishop material (550 cp) and pawn material (120 cp).
+    2. Dash Mobility & Diagonal Dominance:
+       - Bishops dashing diagonally across key color complexes.
+       - Targeting squares adjacent to the enemy King.
+    3. Pawn structure synergy (pawns on opposite color of friendly bishop).
+    4. Passed Pawns promoting strictly to dashing Bishops (+400 cp on 7th rank).
+    5. King Safety against diagonal dash checks.
+    """
+    if board.is_checkmate():
+        return -30000 if board.turn == chess.WHITE else 30000
+    if board.is_game_over():
+        outcome = board.outcome()
+        if outcome and outcome.winner is not None:
+            return 30000 if outcome.winner == chess.WHITE else -30000
+        return 0
+
+    w_bishops = list(board.pieces(chess.BISHOP, chess.WHITE))
+    b_bishops = list(board.pieces(chess.BISHOP, chess.BLACK))
+    w_pawns = list(board.pieces(chess.PAWN, chess.WHITE))
+    b_pawns = list(board.pieces(chess.PAWN, chess.BLACK))
+    w_king = board.king(chess.WHITE)
+    b_king = board.king(chess.BLACK)
+
+    if w_king is None:
+        return -30000
+    if b_king is None:
+        return 30000
+
+    score = (len(w_bishops) - len(b_bishops)) * 550 + (len(w_pawns) - len(b_pawns)) * 120
+
+    # 1. Bishop Dash Mobility & Threats
+    from bishop_dash_engine import BishopDashMode
+    bk_f, bk_r = chess.square_file(b_king), chess.square_rank(b_king)
+    wk_f, wk_r = chess.square_file(w_king), chess.square_rank(w_king)
+
+    for b_sq in w_bishops:
+        bf, br = chess.square_file(b_sq), chess.square_rank(b_sq)
+        dests = BishopDashMode.get_bishop_dash_destinations(board, b_sq)
+        score += len(dests) * 20
+        if abs(bf - bk_f) == abs(br - bk_r):
+            score += 80
+        for d in dests:
+            df, dr = chess.square_file(d), chess.square_rank(d)
+            if max(abs(df - bk_f), abs(dr - bk_r)) <= 1:
+                score += 70
+
+    for b_sq in b_bishops:
+        bf, br = chess.square_file(b_sq), chess.square_rank(b_sq)
+        dests = BishopDashMode.get_bishop_dash_destinations(board, b_sq)
+        score -= len(dests) * 20
+        if abs(bf - wk_f) == abs(br - wk_r):
+            score -= 80
+        for d in dests:
+            df, dr = chess.square_file(d), chess.square_rank(d)
+            if max(abs(df - wk_f), abs(dr - wk_r)) <= 1:
+                score -= 70
+
+    # 2. Passed Pawns promoting to Bishops
+    RANK_PROMO_W = {1: 0, 2: 20, 3: 50, 4: 90, 5: 160, 6: 400}
+    RANK_PROMO_B = {6: 0, 5: 20, 4: 50, 3: 90, 2: 160, 1: 400}
+    for p in w_pawns:
+        score += RANK_PROMO_W.get(chess.square_rank(p), 0)
+    for p in b_pawns:
+        score -= RANK_PROMO_B.get(chess.square_rank(p), 0)
+
+    if board.is_check():
+        score += -120 if board.turn == chess.WHITE else 120
+
+    return score
+
+
 # -----------------------------------------------------------------------------
 # Grandmaster Positional Evaluation Engine
 # -----------------------------------------------------------------------------
@@ -630,51 +851,15 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
 
     # 1. Queen Pawn Mode Specialized Evaluation
     if game_mode and getattr(game_mode, "name", "") in ("Queen Pawn", "Queen Pawn Game"):
-        w_pawns = len(board.pieces(chess.PAWN, chess.WHITE))
-        b_pawns = len(board.pieces(chess.PAWN, chess.BLACK))
-        w_queens = len(board.pieces(chess.QUEEN, chess.WHITE))
-        b_queens = len(board.pieces(chess.QUEEN, chess.BLACK))
-
-        score = (w_pawns - b_pawns) * 400 + (w_queens - b_queens) * 1200
-        for q_sq in board.pieces(chess.QUEEN, chess.WHITE):
-            if board.is_attacked_by(chess.BLACK, q_sq):
-                score -= 350
-        for q_sq in board.pieces(chess.QUEEN, chess.BLACK):
-            if board.is_attacked_by(chess.WHITE, q_sq):
-                score += 350
-        return score
+        return evaluate_queen_pawn(board)
 
     # 2. Rook Dash Mode Specialized Evaluation
     if game_mode and getattr(game_mode, "name", "") == "Rook Dash":
-        w_rooks = len(board.pieces(chess.ROOK, chess.WHITE))
-        b_rooks = len(board.pieces(chess.ROOK, chess.BLACK))
-        w_pawns = len(board.pieces(chess.PAWN, chess.WHITE))
-        b_pawns = len(board.pieces(chess.PAWN, chess.BLACK))
-
-        score = (w_rooks - b_rooks) * 600 + (w_pawns - b_pawns) * 120
-        if board.is_check():
-            score += -100 if board.turn == chess.WHITE else 100
-        for p_sq in board.pieces(chess.PAWN, chess.WHITE):
-            score += (chess.square_rank(p_sq) - 1) * 20
-        for p_sq in board.pieces(chess.PAWN, chess.BLACK):
-            score -= (6 - chess.square_rank(p_sq)) * 20
-        return score
+        return evaluate_rook_dash(board, game_mode)
 
     # 2b. Bishop Dash Mode Specialized Evaluation
     if game_mode and getattr(game_mode, "name", "") == "Bishop Dash":
-        w_bishops = len(board.pieces(chess.BISHOP, chess.WHITE))
-        b_bishops = len(board.pieces(chess.BISHOP, chess.BLACK))
-        w_pawns = len(board.pieces(chess.PAWN, chess.WHITE))
-        b_pawns = len(board.pieces(chess.PAWN, chess.BLACK))
-
-        score = (w_bishops - b_bishops) * 500 + (w_pawns - b_pawns) * 120
-        if board.is_check():
-            score += -100 if board.turn == chess.WHITE else 100
-        for p_sq in board.pieces(chess.PAWN, chess.WHITE):
-            score += (chess.square_rank(p_sq) - 1) * 20
-        for p_sq in board.pieces(chess.PAWN, chess.BLACK):
-            score -= (6 - chess.square_rank(p_sq)) * 20
-        return score
+        return evaluate_bishop_dash(board, game_mode)
 
     mg_w, mg_b = 0, 0
     eg_w, eg_b = 0, 0
