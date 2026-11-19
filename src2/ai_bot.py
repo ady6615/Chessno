@@ -748,15 +748,100 @@ def evaluate_board(board: chess.Board, game_mode: Optional[Any] = None) -> int:
     tapered = (mg_score * phase + eg_score * (24 - phase)) // 24
 
     if hasattr(board, "pockets"):
-        pocket_diff = 0
-        for pt in (chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
-            w_c = board.pockets[chess.WHITE].count(pt)
-            b_c = board.pockets[chess.BLACK].count(pt)
-            val = PIECE_VALUES.get(pt, 100)
-            pocket_diff += (w_c - b_c) * (val + 15)
-        tapered += pocket_diff
+        return evaluate_crazyhouse(board, tapered)
 
     return tapered
+
+
+def evaluate_crazyhouse(board: chess.Board, base_tapered: int) -> int:
+    """
+    Specialized Crazyhouse evaluation engine:
+    1. Pocket piece valuation (pocket material provides instant off-board strike capability).
+    2. Drop-hole king safety analysis:
+       - Open/unoccupied squares adjacent to the king are severe liabilities when the opponent
+         has pieces in reserve (especially knights which cannot be blocked).
+    3. Pawn wedge attacks:
+       - Drop pawns anchored deep in enemy territory (6th/7th rank) creating mating nets.
+    4. Combines with board piece-square evaluation.
+    """
+    if not hasattr(board, "pockets"):
+        return base_tapered
+
+    CRAZYHOUSE_POCKET_VALUES = {
+        chess.PAWN: 130,
+        chess.KNIGHT: 350,
+        chess.BISHOP: 330,
+        chess.ROOK: 520,
+        chess.QUEEN: 980,
+    }
+
+    score = base_tapered
+
+    w_pocket = board.pockets[chess.WHITE]
+    b_pocket = board.pockets[chess.BLACK]
+
+    # 1. Pocket material differential
+    for pt, val in CRAZYHOUSE_POCKET_VALUES.items():
+        w_cnt = w_pocket.count(pt)
+        b_cnt = b_pocket.count(pt)
+        score += (w_cnt - b_cnt) * val
+
+    w_king = board.king(chess.WHITE)
+    b_king = board.king(chess.BLACK)
+
+    # 2. Drop-hole King Safety
+    # When opponent has pocket pieces, any empty square adjacent to King is an invasion square
+    b_has_pieces = len(b_pocket) > 0
+    b_has_knights = b_pocket.count(chess.KNIGHT) > 0
+    if w_king is not None and b_has_pieces:
+        wk_f, wk_r = chess.square_file(w_king), chess.square_rank(w_king)
+        empty_neighbors = 0
+        for df in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if df == 0 and dr == 0:
+                    continue
+                nf, nr = wk_f + df, wk_r + dr
+                if 0 <= nf <= 7 and 0 <= nr <= 7:
+                    if board.piece_at(chess.square(nf, nr)) is None:
+                        empty_neighbors += 1
+        score -= empty_neighbors * 60
+        if b_has_knights:
+            score -= empty_neighbors * 50
+
+    w_has_pieces = len(w_pocket) > 0
+    w_has_knights = w_pocket.count(chess.KNIGHT) > 0
+    if b_king is not None and w_has_pieces:
+        bk_f, bk_r = chess.square_file(b_king), chess.square_rank(b_king)
+        empty_neighbors = 0
+        for df in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if df == 0 and dr == 0:
+                    continue
+                nf, nr = bk_f + df, bk_r + dr
+                if 0 <= nf <= 7 and 0 <= nr <= 7:
+                    if board.piece_at(chess.square(nf, nr)) is None:
+                        empty_neighbors += 1
+        score += empty_neighbors * 60
+        if w_has_knights:
+            score += empty_neighbors * 50
+
+    # 3. Pawn wedge attacks near enemy king
+    for p_sq in board.pieces(chess.PAWN, chess.WHITE):
+        pr = chess.square_rank(p_sq)
+        if pr >= 5 and b_king is not None:
+            dist_to_bk = max(abs(chess.square_file(p_sq) - chess.square_file(b_king)),
+                             abs(pr - chess.square_rank(b_king)))
+            if dist_to_bk <= 2:
+                score += 150
+    for p_sq in board.pieces(chess.PAWN, chess.BLACK):
+        pr = chess.square_rank(p_sq)
+        if pr <= 2 and w_king is not None:
+            dist_to_wk = max(abs(chess.square_file(p_sq) - chess.square_file(w_king)),
+                             abs(pr - chess.square_rank(w_king)))
+            if dist_to_wk <= 2:
+                score -= 150
+
+    return score
 
 
 # -----------------------------------------------------------------------------
@@ -795,7 +880,13 @@ def score_move_mvv_lva(
 
     if move.drop:
         drop_val = PIECE_VALUES.get(move.drop, 100)
-        score += 2500 + drop_val
+        score += 3000 + drop_val
+        if board.gives_check(move):
+            score += 18000
+        elif move.drop == chess.PAWN and chess.square_rank(move.to_square) in (1, 6):
+            score += 9000
+        elif move.drop == chess.KNIGHT:
+            score += 7000
     elif board.is_capture(move):
         # Atomic Chess instant blast win recognition
         if hasattr(board, "is_variant_loss") or isinstance(board, chess.variant.AtomicBoard):
