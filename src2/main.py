@@ -343,13 +343,17 @@ def main() -> None:
             if trigger_draw:
                 game_state.mode.trigger_draw(game_state, animate=True)
             elif bot_move is not None:
-                promo = bot_move.promotion
-                if promo is None and game_state.needs_promotion(bot_move.from_square, bot_move.to_square):
-                    promo = getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN)
-                moving_piece = game_state.get_piece_at(bot_move.from_square)
-                result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=promo)
+                if bot_move.drop is not None:
+                    result = game_state.make_drop_move(bot_move.to_square, bot_move.drop)
+                else:
+                    promo = bot_move.promotion
+                    if promo is None and game_state.needs_promotion(bot_move.from_square, bot_move.to_square):
+                        promo = getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN)
+                    moving_piece = game_state.get_piece_at(bot_move.from_square)
+                    result = game_state.make_move(bot_move.from_square, bot_move.to_square, promotion=promo)
                 if result.success:
-                    check_and_trigger_rook_dash(moving_piece, bot_move.from_square, bot_move.to_square, result)
+                    if bot_move.drop is None:
+                        check_and_trigger_rook_dash(moving_piece, bot_move.from_square, bot_move.to_square, result)
                     check_and_trigger_atomic_explosion(result)
                     play_move_sound(result, game_state)
                     timer.switch_turn(game_state.turn)
@@ -360,16 +364,24 @@ def main() -> None:
                     all_valid = []
                     for sq in chess.SQUARES:
                         all_valid.extend(game_state.get_legal_moves_from(sq))
+                    if hasattr(game_state.board, "pockets"):
+                        all_valid.extend([m for m in game_state.board.legal_moves if m.drop is not None])
                     if all_valid:
                         fb_m = random.choice(all_valid)
-                        fb_promo = fb_m.promotion or (getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN) if game_state.needs_promotion(fb_m.from_square, fb_m.to_square) else None)
-                        fb_piece = game_state.get_piece_at(fb_m.from_square)
-                        res2 = game_state.make_move(fb_m.from_square, fb_m.to_square, promotion=fb_promo)
-                        if res2.success:
-                            check_and_trigger_rook_dash(fb_piece, fb_m.from_square, fb_m.to_square, res2)
-                            check_and_trigger_atomic_explosion(res2)
-                            play_move_sound(res2, game_state)
-                            timer.switch_turn(game_state.turn)
+                        if fb_m.drop is not None:
+                            res2 = game_state.make_drop_move(fb_m.to_square, fb_m.drop)
+                            if res2.success:
+                                play_move_sound(res2, game_state)
+                                timer.switch_turn(game_state.turn)
+                        else:
+                            fb_promo = fb_m.promotion or (getattr(game_state.mode, "auto_promotion_piece", chess.QUEEN) if game_state.needs_promotion(fb_m.from_square, fb_m.to_square) else None)
+                            fb_piece = game_state.get_piece_at(fb_m.from_square)
+                            res2 = game_state.make_move(fb_m.from_square, fb_m.to_square, promotion=fb_promo)
+                            if res2.success:
+                                check_and_trigger_rook_dash(fb_piece, fb_m.from_square, fb_m.to_square, res2)
+                                check_and_trigger_atomic_explosion(res2)
+                                play_move_sound(res2, game_state)
+                                timer.switch_turn(game_state.turn)
 
                 selected_square = None
                 legal_destinations = []

@@ -758,6 +758,54 @@ MAX_TT_ENTRIES = 131072
 
 
 # -----------------------------------------------------------------------------
+# Mode-Aware Move Generation & State Inspection
+# -----------------------------------------------------------------------------
+
+def get_mode_legal_moves(board: chess.Board, game_mode: Optional[Any] = None) -> List[chess.Move]:
+    """
+    Generate all strictly legal moves for the given board under the active game mode.
+    Handles:
+    - Hero Mode: Queen + Knight combined Amazon fairy moves.
+    - Rook Dash & Bishop Dash: Ray dashing constraints.
+    - Crazyhouse: Standard moves + reserve pocket drop moves.
+    - Atomic Chess: Exploding capture moves and suicide constraints.
+    - Standard / Classic / Uno / Snail / Queen Pawn: Standard chess legal moves.
+    """
+    if game_mode is not None:
+        if hasattr(game_mode, "get_legal_moves"):
+            try:
+                return game_mode.get_legal_moves(board)
+            except Exception:
+                pass
+        elif getattr(game_mode, "name", "") in ("Rook Dash", "Bishop Dash"):
+            try:
+                return [m for m in board.legal_moves if game_mode.can_move(m, board=board)]
+            except Exception:
+                pass
+    return list(board.legal_moves)
+
+
+def is_mode_in_check(board: chess.Board, game_mode: Optional[Any] = None) -> bool:
+    """Return True if the active player is in check under standard or variant rules."""
+    if game_mode is not None and hasattr(game_mode, "is_in_check"):
+        try:
+            return bool(game_mode.is_in_check(board))
+        except Exception:
+            pass
+    return board.is_check()
+
+
+def is_mode_game_over(board: chess.Board, game_mode: Optional[Any] = None) -> bool:
+    """Return True if the game is over under standard or variant rules."""
+    if game_mode is not None and hasattr(game_mode, "is_game_over"):
+        try:
+            return bool(game_mode.is_game_over(board))
+        except Exception:
+            pass
+    return board.is_game_over()
+
+
+# -----------------------------------------------------------------------------
 # Search Algorithms: Minimax, Alpha-Beta & Quiescence Search
 # -----------------------------------------------------------------------------
 
@@ -795,11 +843,16 @@ def quiescence_search(
         return stand_pat
 
     # Delta pruning: if stand_pat + 975 (Queen value) < alpha, skip unless in check
-    in_check = board.is_check()
+    in_check = is_mode_in_check(board, game_mode)
     if not in_check and stand_pat + 975 < alpha:
         return alpha
 
-    capture_moves = [m for m in board.legal_moves if board.is_capture(m) or in_check]
+    all_moves = get_mode_legal_moves(board, game_mode)
+    is_ch = game_mode is not None and getattr(game_mode, "name", "") == "Crazyhouse"
+    capture_moves = [
+        m for m in all_moves
+        if board.is_capture(m) or in_check or (is_ch and m.drop is not None and board.gives_check(m))
+    ]
     if not capture_moves:
         return stand_pat
 
@@ -865,7 +918,7 @@ def alpha_beta_search(
         nodes_budget[0] -= 1
 
     orig_alpha = alpha
-    in_check = board.is_check()
+    in_check = is_mode_in_check(board, game_mode)
 
     # Check extension: search deeper when under check
     if in_check and ply < 16:
@@ -886,15 +939,22 @@ def alpha_beta_search(
             )
         return evaluate_board(board, game_mode) * color_mult
 
-    if board.is_game_over():
-        if board.is_checkmate():
+    if is_mode_game_over(board, game_mode):
+        if is_mode_in_check(board, game_mode):
             return -30000 + ply  # Favor quicker checkmates
-        outcome = board.outcome()
+        outcome = board.outcome() if hasattr(board, "outcome") else None
         if outcome and outcome.winner is not None:
             if outcome.winner != board.turn:
                 return -30000 + ply
             else:
                 return 30000 - ply
+        elif game_mode is not None and hasattr(game_mode, "winner"):
+            w = game_mode.winner(board)
+            if w is not None:
+                if w != board.turn:
+                    return -30000 + ply
+                else:
+                    return 30000 - ply
         return 0
 
     # 1. Transposition Table Probe
@@ -943,8 +1003,10 @@ def alpha_beta_search(
             if null_score >= beta:
                 return beta
 
-    legal_moves = list(board.legal_moves)
+    legal_moves = get_mode_legal_moves(board, game_mode)
     if not legal_moves:
+        if is_mode_in_check(board, game_mode):
+            return -30000 + ply
         return 0
 
     # Retrieve killer moves for current ply
@@ -1081,21 +1143,31 @@ def select_best_move(
     """
     TRANSPOSITION_TABLE.clear()
 
-    if game_mode and hasattr(game_mode, "get_legal_moves"):
-        legal_moves = game_mode.get_legal_moves(board)
-    elif game_mode and getattr(game_mode, "name", "") in ("Rook Dash", "Bishop Dash"):
-        legal_moves = [m for m in board.legal_moves if game_mode.can_move(m, board=board)]
-    else:
-        legal_moves = list(board.legal_moves)
+    legal_moves = get_mode_legal_moves(board, game_mode)
 
     if not legal_moves:
         return None
 
-    # Immediate tactical mate-in-1: execute instantly for all levels (except Novice blunder mode)
+    # Immediate tactical mate-in-1 / variant win: execute instantly for all levels (except Novice blunder mode)
     if difficulty != BotDifficulty.NOVICE:
         for m in legal_moves:
             board.push(m)
-            if board.is_checkmate() or (board.is_game_over() and board.outcome() and board.outcome().winner == (not board.turn)):
+            over = is_mode_game_over(board, game_mode)
+            chk = is_mode_in_check(board, game_mode)
+            if over:
+                win = False
+                outcome = board.outcome() if hasattr(board, "outcome") else None
+                if outcome and outcome.winner == (not board.turn):
+                    win = True
+                elif game_mode and hasattr(game_mode, "winner"):
+                    if game_mode.winner(board) == (not board.turn):
+                        win = True
+                elif chk:
+                    win = True
+                if win:
+                    board.pop()
+                    return m
+            elif chk and not get_mode_legal_moves(board, game_mode):
                 board.pop()
                 return m
             board.pop()
@@ -1421,7 +1493,7 @@ class ChessBotController:
                     self._chosen_move = move
             except Exception:
                 if not stop_ev.is_set():
-                    legal = list(board_copy.legal_moves)
+                    legal = get_mode_legal_moves(board_copy, mode_copy)
                     self._chosen_move = random.choice(legal) if legal else None
 
         self._thread = threading.Thread(target=_worker, daemon=True)
@@ -1467,9 +1539,7 @@ class ChessBotController:
             move = self._chosen_move
             # Safety fallback: ensure a non-None move is returned so bot NEVER gets stuck
             if move is None and not game_state.is_game_over():
-                all_legal = []
-                for sq in chess.SQUARES:
-                    all_legal.extend(game_state.get_legal_moves_from(sq))
+                all_legal = get_mode_legal_moves(game_state.board, game_state.mode)
                 if all_legal:
                     promos = [m for m in all_legal if m.promotion in (chess.QUEEN, chess.ROOK, chess.BISHOP)]
                     caps = [m for m in all_legal if game_state.board.is_capture(m)]
