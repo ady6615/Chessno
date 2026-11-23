@@ -41,8 +41,8 @@ PANEL_BG = (25, 28, 36)
 PANEL_CARD_BG = (34, 38, 48)
 PANEL_BORDER = (48, 54, 70)
 TEXT_PRIMARY = (248, 249, 252)
-TEXT_SECONDARY = (168, 176, 194)
-TEXT_MUTED = (118, 126, 142)
+TEXT_SECONDARY = (182, 190, 208)
+TEXT_MUTED = (142, 150, 168)
 ACCENT_COLOR = (60, 205, 145)       # Mint emerald
 ACCENT_HOVER = (80, 225, 165)
 CHECK_COLOR = (239, 68, 68)         # Alert crimson
@@ -523,18 +523,18 @@ class ChessRenderer:
         def _get_mono_font(size: int, bold: bool = False):
             return pygame.font.SysFont("consolas,courier new,segoe ui,arial", size, bold=bold)
 
-        self.font_title = _get_font(25, bold=True)
+        self.font_title = _get_font(26, bold=True)
         self.font_winner = _get_font(38, bold=True)
-        self.font_subtitle = _get_font(13, bold=True)
-        self.font_header = _get_font(17, bold=True)
-        self.font_clock = _get_mono_font(21, bold=True)
-        self.font_normal = _get_font(15)
-        self.font_small = _get_font(13)
-        self.font_micro = _get_font(11)
-        self.font_coords = _get_font(12, bold=True)
+        self.font_subtitle = _get_font(15, bold=True)
+        self.font_header = _get_font(18, bold=True)
+        self.font_clock = _get_mono_font(22, bold=True)
+        self.font_normal = _get_font(16)
+        self.font_small = _get_font(15)
+        self.font_micro = _get_font(13)
+        self.font_coords = _get_font(13, bold=True)
         self.font_card_large = _get_font(46, bold=True)
         self.font_card_med = _get_font(22, bold=True)
-        self.font_card_corner = _get_font(14, bold=True)
+        self.font_card_corner = _get_font(15, bold=True)
 
         self.buttons = UIButtons(panel_x, panel_width)
 
@@ -1893,7 +1893,7 @@ class ChessRenderer:
         hdr_txt = self.font_header.render("CHOOSE GAME MODE (9 MODES)", True, TEXT_PRIMARY)
         self.screen.blit(hdr_txt, (modal_x + 16, modal_y + 12))
 
-        hint_txt = self.font_micro.render("Hover over any mod to expand details • Click [1-9] to select", True, TEXT_SECONDARY)
+        hint_txt = self.font_small.render("Hover over any mod to expand details • Click [1-9] to select", True, TEXT_SECONDARY)
         self.screen.blit(hint_txt, (modal_x + 16, modal_y + 34))
 
         pygame.draw.line(self.screen, (46, 54, 68), (modal_x + 14, modal_y + 50), (modal_x + mods_w - 14, modal_y + 50), 1)
@@ -2057,8 +2057,8 @@ class ChessRenderer:
                     badge_bg = (40, 48, 62)
                     badge_col = TEXT_MUTED
 
-                badge_surf = self.font_micro.render(badge_str, True, badge_col)
-                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 12, draw_rect.centery - 9, badge_surf.get_width() + 8, 18)
+                badge_surf = self.font_small.render(badge_str, True, badge_col)
+                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 14, draw_rect.centery - badge_surf.get_height() // 2, badge_surf.get_width() + 8, badge_surf.get_height() + 2)
                 pygame.draw.rect(self.screen, badge_bg, badge_r, border_radius=4)
                 self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_r.center))
 
@@ -2066,17 +2066,17 @@ class ChessRenderer:
                 # EXPANDED STATE: After hovering horizontally, it reveals remaining details about that mod
                 # 1. Title on Left
                 t_title = self.font_subtitle.render(meta["title"], True, meta["color"])
-                self.screen.blit(t_title, (draw_rect.x + 10, draw_rect.y + 6))
+                self.screen.blit(t_title, (draw_rect.x + 10, draw_rect.y + 4))
 
                 # 2. Subtitle badge on Left
-                s_badge = self.font_micro.render(meta["badge"], True, meta["badge_color"])
-                self.screen.blit(s_badge, (draw_rect.x + 10, draw_rect.y + 27))
+                s_badge = self.font_small.render(meta["badge"], True, meta["badge_color"])
+                self.screen.blit(s_badge, (draw_rect.x + 10, draw_rect.y + 25))
 
                 # 3. Bullets in Middle
-                bullet0 = self.font_micro.render(meta["bullets"][0], True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
-                self.screen.blit(bullet0, (draw_rect.x + 138, draw_rect.y + 7))
-                bullet1 = self.font_micro.render(meta["bullets"][1], True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
-                self.screen.blit(bullet1, (draw_rect.x + 138, draw_rect.y + 27))
+                bullet0 = self.font_small.render(meta["bullets"][0], True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
+                self.screen.blit(bullet0, (draw_rect.x + 120, draw_rect.y + 4))
+                bullet1 = self.font_small.render(meta["bullets"][1], True, TEXT_PRIMARY if is_card_hov else TEXT_SECONDARY)
+                self.screen.blit(bullet1, (draw_rect.x + 120, draw_rect.y + 25))
 
                 # 4. Action / Active Pill on Far Right
                 if is_card_active:
@@ -2092,8 +2092,8 @@ class ChessRenderer:
                     badge_bg = (40, 48, 62)
                     badge_col = TEXT_MUTED
 
-                badge_surf = self.font_micro.render(badge_str, True, badge_col)
-                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 10, draw_rect.centery - 10, badge_surf.get_width() + 8, 20)
+                badge_surf = self.font_small.render(badge_str, True, badge_col)
+                badge_r = pygame.Rect(draw_rect.right - badge_surf.get_width() - 10, draw_rect.centery - badge_surf.get_height() // 2, badge_surf.get_width() + 8, badge_surf.get_height() + 2)
                 pygame.draw.rect(self.screen, badge_bg, badge_r, border_radius=4)
                 self.screen.blit(badge_surf, badge_surf.get_rect(center=badge_r.center))
 
@@ -2138,8 +2138,8 @@ class ChessRenderer:
 
         # Side Selection (White, Random, Black)
         w_side_r, r_side_r, b_side_r = side_rects
-        side_caption = self.font_micro.render("Side:", True, TEXT_MUTED if not is_bot_enabled else TEXT_SECONDARY)
-        self.screen.blit(side_caption, (w_side_r.x - 30, w_side_r.centery - 6))
+        side_caption = self.font_small.render("Side:", True, TEXT_MUTED if not is_bot_enabled else TEXT_SECONDARY)
+        self.screen.blit(side_caption, (w_side_r.x - 38, w_side_r.centery - side_caption.get_height() // 2))
 
         for s_rect, s_name, is_sel in [
             (w_side_r, "White ♔", is_bot_enabled and curr_side == chess.WHITE),
@@ -2179,13 +2179,13 @@ class ChessRenderer:
 
             title_str = f"{meta['level_num']}. {meta['name']}"
             t_surf = self.font_subtitle.render(title_str, True, color_accent if is_active_diff else (TEXT_PRIMARY if is_bot_enabled else TEXT_MUTED))
-            self.screen.blit(t_surf, (d_rect.x + 10, d_rect.y + 8))
+            self.screen.blit(t_surf, (d_rect.x + 10, d_rect.y + 6))
 
-            elo_surf = self.font_micro.render(meta["elo"], True, color_accent if is_active_diff else TEXT_MUTED)
-            self.screen.blit(elo_surf, (d_rect.right - elo_surf.get_width() - 10, d_rect.y + 8))
+            elo_surf = self.font_small.render(meta["elo"], True, color_accent if is_active_diff else TEXT_MUTED)
+            self.screen.blit(elo_surf, (d_rect.right - elo_surf.get_width() - 10, d_rect.y + 6))
 
-            desc_surf = self.font_micro.render(meta["desc"], True, TEXT_SECONDARY if is_bot_enabled else TEXT_MUTED)
-            self.screen.blit(desc_surf, (d_rect.x + 10, d_rect.y + 28))
+            desc_surf = self.font_small.render(meta["desc"], True, TEXT_SECONDARY if is_bot_enabled else TEXT_MUTED)
+            self.screen.blit(desc_surf, (d_rect.x + 10, d_rect.y + 26))
 
         # Divider line between Bot and Timer
         div1_y = modal_y + 192
@@ -2195,7 +2195,7 @@ class ChessRenderer:
         timer_title = self.font_header.render("TIME CONTROL (SET MATCH TIMER)", True, GOLD_COLOR)
         self.screen.blit(timer_title, (right_x + 16, div1_y + 10))
 
-        timer_sub = self.font_micro.render("Choose match time limit before starting. Clock begins ticking on first move.", True, TEXT_MUTED)
+        timer_sub = self.font_small.render("Choose match time limit before starting. Clock begins ticking on first move.", True, TEXT_MUTED)
         self.screen.blit(timer_sub, (right_x + 16, div1_y + 28))
 
         preset_rects, minus_rect, plus_rect = self.get_mode_selector_timer_rects()
@@ -2267,7 +2267,7 @@ class ChessRenderer:
         start_lbl = self.font_header.render("START MATCH / PLAY NOW", True, (15, 35, 25))
         self.screen.blit(start_lbl, start_lbl.get_rect(center=start_game_r.center))
 
-        tip_txt = self.font_micro.render("Press [1-9] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
+        tip_txt = self.font_small.render("Press [1-9] for mode • [B] cycle bot level • [Space] start • [Esc] resume", True, TEXT_MUTED)
         self.screen.blit(tip_txt, tip_txt.get_rect(center=(right_x + right_w // 2, start_game_r.bottom + 16)))
 
         # 4. Active Mode Briefing Card
@@ -2280,16 +2280,16 @@ class ChessRenderer:
         b_hdr = self.font_subtitle.render(f"ACTIVE MODE: {active_meta['title']}", True, active_meta["color"])
         self.screen.blit(b_hdr, (brief_rect.x + 12, brief_rect.y + 10))
 
-        b_badge = self.font_micro.render(active_meta["badge"], True, active_meta["badge_color"])
+        b_badge = self.font_small.render(active_meta["badge"], True, active_meta["badge_color"])
         self.screen.blit(b_badge, (brief_rect.right - b_badge.get_width() - 12, brief_rect.y + 12))
 
-        b_bullet0 = self.font_micro.render(active_meta["bullets"][0], True, TEXT_PRIMARY)
+        b_bullet0 = self.font_small.render(active_meta["bullets"][0], True, TEXT_PRIMARY)
         self.screen.blit(b_bullet0, (brief_rect.x + 12, brief_rect.y + 34))
 
-        b_bullet1 = self.font_micro.render(active_meta["bullets"][1], True, TEXT_PRIMARY)
+        b_bullet1 = self.font_small.render(active_meta["bullets"][1], True, TEXT_PRIMARY)
         self.screen.blit(b_bullet1, (brief_rect.x + 12, brief_rect.y + 54))
 
-        b_sub = self.font_micro.render("AI Engine bot heuristics trained and fully active for this mode.", True, (120, 220, 180))
+        b_sub = self.font_small.render("AI Engine bot heuristics trained and fully active for this mode.", True, (120, 220, 180))
         self.screen.blit(b_sub, (brief_rect.x + 12, brief_rect.y + 74))
 
         return rect_classic, rect_uno, rect_snail, rect_queen_pawn, rect_rook_dash, rect_bishop_dash, rect_hero_mode, rect_atomic
@@ -3749,8 +3749,8 @@ class ChessRenderer:
             fourth_line,
         ]
         for idx, line in enumerate(controls):
-            ctrl_txt = self.font_micro.render(line, True, TEXT_SECONDARY)
-            self.screen.blit(ctrl_txt, (px, 774 + idx * 17))
+            ctrl_txt = self.font_small.render(line, True, TEXT_SECONDARY)
+            self.screen.blit(ctrl_txt, (px, 770 + idx * 20))
 
     def _draw_button(
         self,
