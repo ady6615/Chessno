@@ -13,6 +13,7 @@ Handles all Pygame drawing routines:
 """
 
 import math
+from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import pygame
 import chess
@@ -516,12 +517,28 @@ class ChessRenderer:
         self.panel_x = panel_x
         self.panel_width = panel_width
 
-        # Initialize typography with modern system font fallbacks
+        # Initialize typography with blocky design font and system fallbacks
+        blocky_font_path = Path(__file__).resolve().parent / "assets" / "fonts" / "Pixellari.ttf"
+
         def _get_font(size: int, bold: bool = False):
-            return pygame.font.SysFont("segoe ui,trebuchet ms,arial", size, bold=bold)
+            if blocky_font_path.exists():
+                try:
+                    f = pygame.font.Font(str(blocky_font_path), size)
+                    f.set_bold(bold)
+                    return f
+                except Exception:
+                    pass
+            return pygame.font.SysFont("pixellari,pixelade,consolas,courier new,arial", size, bold=bold)
 
         def _get_mono_font(size: int, bold: bool = False):
-            return pygame.font.SysFont("consolas,courier new,segoe ui,arial", size, bold=bold)
+            if blocky_font_path.exists():
+                try:
+                    f = pygame.font.Font(str(blocky_font_path), size)
+                    f.set_bold(bold)
+                    return f
+                except Exception:
+                    pass
+            return pygame.font.SysFont("consolas,pixellari,pixelade,courier new", size, bold=bold)
 
         self.font_title = _get_font(26, bold=True)
         self.font_winner = _get_font(38, bold=True)
