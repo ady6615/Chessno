@@ -45,26 +45,26 @@ class TestModeCollapsingPanel(unittest.TestCase):
         self.renderer.mode_button_anim_heights.clear()
 
     def test_mode_selector_box_rect_dimensions(self):
-        """Main mods section has a permanent, fixed spacious column box (height >= 500, width >= 400)."""
+        """Main mods section has a permanent, fixed spacious top box (height >= 400, width >= 900)."""
         panel_r = self.renderer.get_mode_selector_box_rect()
-        self.assertGreaterEqual(panel_r.height, 500)
-        self.assertGreaterEqual(panel_r.width, 400)
+        self.assertGreaterEqual(panel_r.height, 400)
+        self.assertGreaterEqual(panel_r.width, 900)
 
     def test_9_mode_card_rects_and_column(self):
         """Mode selector returns 9 cards arranged in a single vertical column with proper spacing in between."""
-        # Expanded state (width >= 400, height 48)
+        # Expanded state (width >= 900, height 36)
         rects_exp = self.renderer.get_mode_selector_rects(expanded=True)
         self.assertEqual(len(rects_exp), 9)
         for r in rects_exp:
-            self.assertEqual(r.height, 48)
-            self.assertGreaterEqual(r.width, 400)
+            self.assertEqual(r.height, 36)
+            self.assertGreaterEqual(r.width, 900)
 
-        # Collapsed state (width <= 200, height 48)
+        # Collapsed state (width <= 260, height 36)
         rects_col = self.renderer.get_mode_selector_rects(expanded=False)
         self.assertEqual(len(rects_col), 9)
         for r in rects_col:
-            self.assertEqual(r.height, 48)
-            self.assertLessEqual(r.width, 200)
+            self.assertEqual(r.height, 36)
+            self.assertLessEqual(r.width, 260)
 
         # All 9 cards share the same left X coordinate (aligned in a column)
         col_x = rects_exp[0].x
@@ -76,7 +76,7 @@ class TestModeCollapsingPanel(unittest.TestCase):
             self.assertGreater(rects_exp[i + 1].y, rects_exp[i].bottom, f"Card {i+1} must be below Card {i} with gap")
 
     def test_modal_rendering_collapsed_buttons_when_mouse_away(self):
-        """When mouse cursor is away, all mod buttons remain collapsed at <=200px showing only mod names."""
+        """When mouse cursor is away, all mod buttons remain collapsed at <=260px showing only mod names."""
         mouse_pos = (900, 600)  # Away from mode panel column
         timer = ChessTimer(time_limit_seconds=300)
         bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
@@ -89,12 +89,12 @@ class TestModeCollapsingPanel(unittest.TestCase):
         )
         self.assertEqual(len(ret), 8)
 
-        # All buttons must be in collapsed width state (<= 200.0)
+        # All buttons must be in collapsed width state (<= 260.0)
         for mode_id, w in self.renderer.mode_button_anim_widths.items():
-            self.assertLessEqual(w, 200.0, f"Button {mode_id} should be collapsed horizontally when unhovered")
+            self.assertLessEqual(w, 260.0, f"Button {mode_id} should be collapsed horizontally when unhovered")
 
     def test_modal_rendering_expands_individual_button_on_hover(self):
-        """When mouse cursor hovers over a specific mod button, only that button expands horizontally to show remaining details."""
+        """When mouse cursor hovers over a specific mod button, only that button expands horizontally across the panel."""
         timer = ChessTimer(time_limit_seconds=300)
         bot = ChessBotController(difficulty=BotDifficulty.CASUAL)
 
@@ -112,14 +112,14 @@ class TestModeCollapsingPanel(unittest.TestCase):
                 current_mode_name="Classic",
             )
 
-        # Classic button must have expanded horizontally (> 260.0)
-        classic_w = self.renderer.mode_button_anim_widths.get("Classic", 190.0)
-        self.assertGreater(classic_w, 260.0, "Hovered Classic button must expand horizontally to show details")
+        # Classic button must have expanded horizontally (> 340.0)
+        classic_w = self.renderer.mode_button_anim_widths.get("Classic", 240.0)
+        self.assertGreater(classic_w, 340.0, "Hovered Classic button must expand horizontally across the panel")
 
-        # Other buttons (e.g. Crazyhouse, Snail) must remain collapsed (<= 200.0)
+        # Other buttons (e.g. Crazyhouse, Snail) must remain collapsed (<= 260.0)
         for mode_id, w in self.renderer.mode_button_anim_widths.items():
             if mode_id != "Classic":
-                self.assertLessEqual(w, 200.0, f"Unhovered button {mode_id} must remain collapsed")
+                self.assertLessEqual(w, 260.0, f"Unhovered button {mode_id} must remain collapsed")
 
     def test_all_modes_render_without_crash(self):
         """All 9 modes render cleanly in both collapsed and hovered expanded states."""
