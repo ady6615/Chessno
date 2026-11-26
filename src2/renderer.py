@@ -2172,13 +2172,10 @@ class ChessRenderer:
 
             title_str = f"{meta['level_num']}. {meta['name']}"
             t_surf = self.font_subtitle.render(title_str, True, color_accent if is_active_diff else (TEXT_PRIMARY if is_bot_enabled else TEXT_MUTED))
-            self.screen.blit(t_surf, (d_rect.x + 10, d_rect.y + 6))
+            self.screen.blit(t_surf, (d_rect.x + 12, d_rect.centery - t_surf.get_height() // 2))
 
             elo_surf = self.font_small.render(meta["elo"], True, color_accent if is_active_diff else TEXT_MUTED)
-            self.screen.blit(elo_surf, (d_rect.right - elo_surf.get_width() - 10, d_rect.y + 6))
-
-            desc_surf = self.font_small.render(meta["desc"], True, TEXT_SECONDARY if is_bot_enabled else TEXT_MUTED)
-            self.screen.blit(desc_surf, (d_rect.x + 10, d_rect.y + 26))
+            self.screen.blit(elo_surf, (d_rect.right - elo_surf.get_width() - 12, d_rect.centery - elo_surf.get_height() // 2))
 
         # Divider line between Bot and Timer
         div1_y = below_y + 130
