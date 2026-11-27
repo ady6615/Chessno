@@ -157,6 +157,28 @@ class TestModeCollapsingPanel(unittest.TestCase):
                     current_mode_name=mode_name,
                 )
 
+    def test_mode_selector_start_game_button_and_options(self):
+        """Verify the start game button and option rects are accessible and properly separated."""
+        vs_bot, vs_local, diffs, sides, start_btn = self.renderer.get_mode_selector_ai_rects()
+        mode_rects = self.renderer.get_mode_selector_rects(expanded=True)
+        timer_presets, minus_r, plus_r = self.renderer.get_mode_selector_timer_rects()
+
+        # Start button must be distinct from mode cards
+        for mr in mode_rects:
+            self.assertFalse(start_btn.colliderect(mr), "Start button must not overlap any mode button")
+
+        # Start button must be distinct from bot options
+        self.assertFalse(start_btn.colliderect(vs_bot))
+        self.assertFalse(start_btn.colliderect(vs_local))
+        for dr, _ in diffs:
+            self.assertFalse(start_btn.colliderect(dr))
+        for sr in sides:
+            self.assertFalse(start_btn.colliderect(sr))
+
+        # Start button must have a valid clickable size
+        self.assertGreaterEqual(start_btn.width, 300)
+        self.assertGreaterEqual(start_btn.height, 35)
+
 
 if __name__ == "__main__":
     unittest.main()

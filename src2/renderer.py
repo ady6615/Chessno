@@ -2045,7 +2045,7 @@ class ChessRenderer:
                 badge_bg = (35, 70, 50)
                 badge_col = (110, 240, 160)
             elif is_card_hov:
-                badge_str = f"PLAY [{meta['num']}]"
+                badge_str = f"SELECT [{meta['num']}]"
                 badge_bg = meta["color"]
                 badge_col = (15, 25, 20)
             else:

@@ -128,7 +128,8 @@ def main() -> None:
     # 5. UI and Interaction State
     timer = ChessTimer(time_limit_seconds=300)
     bot_controller = ChessBotController(difficulty=BotDifficulty.CASUAL)
-    mode_selector_open: bool = False
+    mode_selector_open: bool = True
+    pending_mode_name: str = current_mode_name
     asset_creator_state = AssetPackCreatorState()
     asset_creator_open: bool = False
     sound_creator_state = SoundPackCreatorState()
@@ -139,9 +140,6 @@ def main() -> None:
     drag_start_square: Optional[chess.Square] = None
     flipped: bool = False  # False: White at bottom; True: Black at bottom
     pending_promotion: Optional[Tuple[chess.Square, chess.Square]] = None
-
-    Assets.play_sound("game_start")
-    renderer.trigger_start_bounce()
 
     def handle_uno_reverse(old_turn: chess.Color, new_turn: chess.Color) -> None:
         nonlocal flipped, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion
@@ -165,7 +163,7 @@ def main() -> None:
         pending_promotion = None
 
     def switch_to_mode(mode_name: str) -> None:
-        nonlocal current_mode_name, game_state, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion, flipped, mode_selector_open
+        nonlocal current_mode_name, game_state, selected_square, legal_destinations, dragging, drag_start_square, pending_promotion, flipped, mode_selector_open, pending_mode_name
         bot_controller.cancel_thinking()
         end_pieces = {sq: game_state.get_piece_at(sq) for sq in chess.SQUARES if game_state.get_piece_at(sq) is not None}
         if mode_name == "Chess + UNO":
@@ -223,6 +221,7 @@ def main() -> None:
         drag_start_square = None
         pending_promotion = None
         mode_selector_open = False
+        pending_mode_name = current_mode_name
         timer.reset()
         renderer.cancel_rook_dash()
         renderer.cancel_atomic_explosion()
@@ -580,30 +579,40 @@ def main() -> None:
                     mini_chip_clicked = False
                     for chip_rect, m_name in mini_chips:
                         if chip_rect.collidepoint(event_pos):
-                            switch_to_mode(m_name)
+                            pending_mode_name = m_name
+                            Assets.play_sound("move")
                             mini_chip_clicked = True
                             break
                     if mini_chip_clicked:
                         continue
 
                     if c_rect.collidepoint(event_pos):
-                        switch_to_mode("Classic")
+                        pending_mode_name = "Classic"
+                        Assets.play_sound("move")
                     elif u_rect.collidepoint(event_pos):
-                        switch_to_mode("Chess + UNO")
+                        pending_mode_name = "Chess + UNO"
+                        Assets.play_sound("move")
                     elif s_rect.collidepoint(event_pos):
-                        switch_to_mode("Immortal Snail")
+                        pending_mode_name = "Immortal Snail"
+                        Assets.play_sound("move")
                     elif qp_rect.collidepoint(event_pos):
-                        switch_to_mode("Queen Pawn")
+                        pending_mode_name = "Queen Pawn"
+                        Assets.play_sound("move")
                     elif rd_rect.collidepoint(event_pos):
-                        switch_to_mode("Rook Dash")
+                        pending_mode_name = "Rook Dash"
+                        Assets.play_sound("move")
                     elif bd_rect.collidepoint(event_pos):
-                        switch_to_mode("Bishop Dash")
+                        pending_mode_name = "Bishop Dash"
+                        Assets.play_sound("move")
                     elif hm_rect.collidepoint(event_pos):
-                        switch_to_mode("Hero Mode")
+                        pending_mode_name = "Hero Mode"
+                        Assets.play_sound("move")
                     elif at_rect.collidepoint(event_pos):
-                        switch_to_mode("Atomic Chess")
+                        pending_mode_name = "Atomic Chess"
+                        Assets.play_sound("move")
                     elif ch_rect.collidepoint(event_pos):
-                        switch_to_mode("Crazyhouse")
+                        pending_mode_name = "Crazyhouse"
+                        Assets.play_sound("move")
                     elif vs_bot_r.collidepoint(event_pos):
                         bot_controller.enabled = True
                         Assets.play_sound("move")
@@ -624,10 +633,7 @@ def main() -> None:
                         flipped = True
                         Assets.play_sound("move")
                     elif start_game_r.collidepoint(event_pos):
-                        mode_selector_open = False
-                        timer.resume()
-                        Assets.play_sound("game_start")
-                        renderer.trigger_start_bounce()
+                        switch_to_mode(pending_mode_name)
                     else:
                         d_clicked = False
                         for d_r, diff in diff_rects:
@@ -652,9 +658,6 @@ def main() -> None:
                                 elif plus_r.collidepoint(event_pos):
                                     timer.adjust_custom_minutes(1)
                                     Assets.play_sound("move")
-                                else:
-                                    mode_selector_open = False
-                                    timer.resume()
                     continue
 
                 # 2. Promotion Modal Intercept
@@ -706,6 +709,7 @@ def main() -> None:
                 # 3. Check UI Button Clicks
                 if renderer.buttons.mode_select.collidepoint(event_pos):
                     mode_selector_open = True
+                    pending_mode_name = current_mode_name
                     timer.pause()
                     continue
 
@@ -1008,7 +1012,7 @@ def main() -> None:
                     toggle_fullscreen()
                     continue
 
-                elif event.key == pygame.K_r:
+                elif event.key == pygame.K_r and not mode_selector_open:
                     bot_controller.cancel_thinking()
                     end_pieces = {sq: game_state.get_piece_at(sq) for sq in chess.SQUARES if game_state.get_piece_at(sq) is not None}
                     game_state.reset()
@@ -1058,41 +1062,47 @@ def main() -> None:
                     sound_creator_open = True
                     timer.pause()
 
-                elif event.key == pygame.K_SPACE:
+                elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
                     if mode_selector_open:
-                        mode_selector_open = False
-                        timer.resume()
-                        Assets.play_sound("game_start")
-                        renderer.trigger_start_bounce()
+                        switch_to_mode(pending_mode_name)
                     elif isinstance(game_state.mode, ChessUnoMode) and game_state.mode.phase == UnoTurnPhase.AWAITING_DRAW:
                         game_state.mode.trigger_draw(game_state, animate=True)
 
                 elif event.key == pygame.K_1 and mode_selector_open:
-                    switch_to_mode("Classic")
+                    pending_mode_name = "Classic"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_2 and mode_selector_open:
-                    switch_to_mode("Chess + UNO")
+                    pending_mode_name = "Chess + UNO"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_3 and mode_selector_open:
-                    switch_to_mode("Immortal Snail")
+                    pending_mode_name = "Immortal Snail"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_4 and mode_selector_open:
-                    switch_to_mode("Queen Pawn")
+                    pending_mode_name = "Queen Pawn"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_5 and mode_selector_open:
-                    switch_to_mode("Rook Dash")
+                    pending_mode_name = "Rook Dash"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_6 and mode_selector_open:
-                    switch_to_mode("Bishop Dash")
+                    pending_mode_name = "Bishop Dash"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_7 and mode_selector_open:
-                    switch_to_mode("Hero Mode")
+                    pending_mode_name = "Hero Mode"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_8 and mode_selector_open:
-                    switch_to_mode("Atomic Chess")
+                    pending_mode_name = "Atomic Chess"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_9 and mode_selector_open:
-                    switch_to_mode("Crazyhouse")
+                    pending_mode_name = "Crazyhouse"
+                    Assets.play_sound("move")
 
                 elif event.key == pygame.K_ESCAPE:
                     if mode_selector_open:
@@ -1193,7 +1203,7 @@ def main() -> None:
                 mouse_pos,
                 timer=timer,
                 bot_controller=bot_controller,
-                current_mode_name=current_mode_name,
+                current_mode_name=pending_mode_name,
             )
 
         # 7b. Custom Asset Pack Creator Modal
